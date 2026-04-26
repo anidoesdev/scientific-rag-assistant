@@ -1,15 +1,18 @@
+version: "3.9"
+
 services:
-  postgres:
-    image: ankane/pgvector:latest
-    container_name: research_db
-    ports:
-      -"5432:5432"
-    volumes:
-      -pgdata: /var/lib/postgresql/data
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: scientific_rag_pg
     restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: passcode
-      POSTGRES_DB: research_storage
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpassword
+      POSTGRES_DB: ragdb
+    ports:
+      - "5732:5732"
+    volumes:
+      - rag_pg_data:/var/lib/postgresql/data
+
 volumes:
-  pgdata:
+  rag_pg_data:
