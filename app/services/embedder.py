@@ -1,7 +1,12 @@
 from typing import List
 from app.core.config import get_settings
+import ollama
+
 
 settings = get_settings()
+
+
+OLLAMA_EMBED_MODEL = "nomic-embed-text"
 
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
@@ -13,5 +18,25 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     """
     # Example shape documentation:
     # return [[0.0] * 1536 for _ in texts]  # dummy vectors
+    
+    if not texts:
+        return []
 
-    raise NotImplementedError("Implement embed_texts with your embedding API")
+    response = ollama.embed(model=OLLAMA_EMBED_MODEL,input=texts)
+    
+    
+    embeddings = response.embeddings
+    if embeddings is None:
+        raise ValueError(f"Ollama response missing 'embeddings' key: ")
+    
+    if len(embeddings) != len(texts):
+        raise ValueError(
+            f"Ollama returned {len(embeddings)} embeddings for {len(texts)} texts"
+        )
+    
+    return embeddings
+
+   
+# resp = ollama.embed(model=OLLAMA_EMBED_MODEL,input=["test string"])
+# print(len(resp.embeddings[0]))
+# print(len(resp.model_dump_json()["embeddings"][0]))

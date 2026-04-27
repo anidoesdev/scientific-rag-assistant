@@ -48,26 +48,30 @@ def load_papers() -> List[Dict[str,Any]]:
     return all_papers
 
 def clean_page_text(text: str) -> str:
+    """Light text cleanup for PDF-extracted content."""
     if not text:
         return ""
-    
-    #normalize newlines
-    t = text.replace("\r\n","\n").replace("\r","\n")
-    
-    #collapse multiple blank lines
+
+    # Remove NUL bytes first
+    t = text.replace("\x00", "")
+
+    # Normalize newlines
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Collapse multiple blank lines
     lines = [line.strip() for line in t.split("\n")]
     cleaned_lines = []
     blank_streak = 0
+
     for line in lines:
         if line == "":
-            blank_streak+=1
-            #keep at most one blank
+            blank_streak += 1
             if blank_streak == 1:
                 cleaned_lines.append("")
         else:
             blank_streak = 0
             cleaned_lines.append(line)
-    
+
     return "\n".join(cleaned_lines).strip()
 
 def build_paper_text(paper: Dict[str,Any]) -> str:

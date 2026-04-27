@@ -50,6 +50,12 @@ def insert_embeddings():
     finally:
         session.close()
 
+def sanitize_text(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    return value.replace("\x00", "")
 
 def process_batch(session, batch: List[Dict[str, Any]]) -> int:
     texts = [c["text"] for c in batch]
@@ -63,13 +69,13 @@ def process_batch(session, batch: List[Dict[str, Any]]) -> int:
     for chunk_obj, emb in zip(batch, embeddings):
         params_list.append(
             {
-                "chunk_id": chunk_obj["chunk_id"],
-                "paper_id": chunk_obj["paper_id"],
-                "file_name": chunk_obj.get("file_name"),
-                "source": chunk_obj.get("source"),
+                "chunk_id": sanitize_text(chunk_obj["chunk_id"]),
+                "paper_id": sanitize_text(chunk_obj["paper_id"]),
+                "file_name": sanitize_text(chunk_obj.get("file_name")),
+                "source": sanitize_text(chunk_obj.get("source")),
                 "chunk_index": chunk_obj["chunk_index"],
                 "total_chunks_for_paper": chunk_obj["total_chunks_for_paper"],
-                "text": chunk_obj["text"],
+                "text": sanitize_text(chunk_obj["text"]),
                 "embedding": emb,
             }
         )
