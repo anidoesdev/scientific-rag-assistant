@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.post('/ask',response_model=AskResponse)
-async def ask(req: AskRequest):
-    chunks = retrieve_chunks(req.question, k=5)
+async def ask(req: AskRequest) -> AskResponse:
+    chunks = retrieve_chunks(req.question, k=req.k)
     result = generate_answer(req.question, chunks)
-    return result
+    return AskResponse(**result)

@@ -1,20 +1,26 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 
-class AskRequest(BaseModel):
-    question: str
 
 class Citation(BaseModel):
-    paper_id: str
-    title: str
     chunk_id: str
+    paper_id: str
+    similarity: float
+
 
 class RetrievedChunk(BaseModel):
     chunk_id: str
-    score: float
+    paper_id: str
+    text: str
+    similarity: float
+
+
+class AskRequest(BaseModel):
+    question: str
+    k: int = Field(default=5, ge=1, le=20)
+
 
 class AskResponse(BaseModel):
-    question: str
     answer: str
     citations: List[Citation]
     retrieved_chunks: List[RetrievedChunk]

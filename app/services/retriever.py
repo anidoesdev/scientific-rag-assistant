@@ -16,9 +16,9 @@ def retrieve_chunks(question:str,k:int):
         chunk_id,
         paper_id,
         text,
-        1 - (embedding <=> :query_embedding) AS similarity
+        1 - (embedding <=> CAST(:query_embedding AS vector)) AS similarity
         FROM chunks
-        ORDER BY embedding <=> :query_embedding
+        ORDER BY embedding <=> CAST(:query_embedding AS vector)
         LIMIT :k;
         """
     )
