@@ -1,6 +1,17 @@
-import ollama
+from langchain_openai import ChatOpenAI
+from typing import List
+from pydantic import BaseModel,Field
+from app.core.config import get_settings
 
-OLLAMA_CHAT_MODEL = "llama3.1"
+settings = get_settings()
+
+
+class AnswerOutput(BaseModel):
+    answer: str = Field(description="Grounded answer to the question")
+    used_sources: List[int] = Field(description="List of source numbers actually used")
+
+
+OPENAI_MODEL = "gpt-5-mini"
 
 
 def build_context(chunks: list[dict]) -> str:
@@ -38,43 +49,44 @@ def build_prompt(question: str,chunks: list[dict]) -> str:
 
 
 def generate_answer(question: str,chunks: list[dict]) -> dict:
-    prompt = build_prompt(question, chunks)
-    
-    response = ollama.chat(
-        model=OLLAMA_CHAT_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        options={
-            "temperature": 0.2
-        }
+    llm = ChatOpenAI(
+        model=OPENAI_MODEL,
+        temperature=0,
+        api_key=settings.openai_api_key
     )
     
-    answer_text = response["messages"]["content"].strip()
-    citations = [
-        {
-            "chunk_id": chunk["chunk_id"],
-            "paper_id": chunk["paper_id"],
-            "similarity": float(chunk["similarity"]),
-        }
-        for chunk in chunks
-    ]
+    structured_llm = llm.with_structured_output(AnswerOutput)
     
-    retrieved_chunks = [
-        {
-            "chunk_id": chunk["chunk_id"],
-            "paper_id": chunk["paper_id"],
-            "text": chunk["text"],
-            "similarity": float(chunk["similarity"])
-        }
-        for chunk in chunks
-    ]
+    prompt = build_prompt(question, chunks)
+    response = structured_llm.invoke(prompt)
+    
+    used_indices = set(response.used_sources)
+    
+    
+    citations=[]
+    retrieved_chunks = []
+    
+    for i, chunk in enumerate(chunks, start=1):
+        if i in used_indices:
+            citations.append(
+                {
+                    "chunk_id": chunk["chunk_id"],
+                    "paper_id": chunk["paper_id"],
+                    "similarity": float(chunk["similarity"])
+                }
+            )
+        retrieved_chunks.append(
+            {
+                "chunk_id": chunk["chunk_id"],
+                "paper_id": chunk["paper_id"],
+                "text": chunk["text"],
+                "similarity": float(chunk["similarity"])            }
+        )
+    
+    
     
     return {
-        "answer":answer_text,
+        "answer":response.answer,
         "citations": citations,
         "retrieved_chunks": retrieved_chunks
     }
