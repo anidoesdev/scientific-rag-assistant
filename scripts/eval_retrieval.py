@@ -30,9 +30,9 @@ def main():
         question = item["question"]
         expected_papers = item["expected_papers"]
 
-        retrieval = retrieve_chunks(question, k=5)
+        results = retrieve_chunks(question, k=5)
         
-        results = rerank_chunks(question,retrieval,top_n=5)
+        
 
         hit = hit_at_k(results, expected_papers)
         rr = reciprocal_rank(results, expected_papers)
