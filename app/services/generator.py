@@ -6,10 +6,16 @@ from app.core.config import get_settings
 settings = get_settings()
 
 
-class AnswerOutput(BaseModel):
-    answer: str = Field(description="Grounded answer to the question")
-    used_sources: List[int] = Field(description="List of source numbers actually used")
-
+class GeneratedAnswer(BaseModel):
+    answer: str = Field(description="Grounded answer to the user's question")
+    used_sources: List[int] = Field(
+        default_factory=list,
+        description="1-based source numbers actually used in the answer"
+    )
+    unsupported: bool = Field(
+        default=False,
+        description="True if the retrieved sources do not support a grounded answer"
+    )
 
 OPENAI_MODEL = "gpt-5-mini"
 
@@ -21,7 +27,7 @@ def build_context(chunks: list[dict]) -> str:
             f"[Source {i}]\n"
             f"chunk_id: {chunk['chunk_id']}\n"
             f"paper_id: {chunk['paper_id']}\n"
-            f"similarity: {chunk['similarity']}\n"
+            f"file_name: {chunk.get('file_name','')}\n"
             f"text:\n{chunk['text']}\n"
         )
     return "\n\n".join(parts)
@@ -31,21 +37,24 @@ def build_prompt(question: str,chunks: list[dict]) -> str:
     context = build_context(chunks)
 
     return f"""
-        You are a scientific research assistant.
+    You are a scientific research assistant.
 
-        Answer the user's question using only the provided retrieved context.
-        If the answer is not supported by the context, say that clearly.
-        Do not make up facts.
-        Cite sources inline using [Source 1], [Source 2], etc. based on the provided context.
+    Answer the question using ONLY the provided sources.
 
-        User question:
-        {question}
+    Rules:
+    1. Do not use outside knowledge.
+    2. If the sources do not support an answer, set unsupported=true.
+    3. Return used_sources as the 1-based source numbers actually used.
+    4. Only include source numbers that directly support the answer.
+    5. Do not cite a source you did not use.
+    6. Keep the answer concise and factual.
 
-        Retrieved context:
-        {context}
+    Question:
+    {question}
 
-        Return a concise but helpful answer with inline citations.
-        """.strip()
+    Sources:
+    {context}
+    """.strip()
 
 
 def generate_answer(question: str,chunks: list[dict]) -> dict:
@@ -55,39 +64,31 @@ def generate_answer(question: str,chunks: list[dict]) -> dict:
         api_key=settings.openai_api_key
     )
     
-    structured_llm = llm.with_structured_output(AnswerOutput)
+    structured_llm = llm.with_structured_output(GeneratedAnswer)
     
     prompt = build_prompt(question, chunks)
     response = structured_llm.invoke(prompt)
     
-    used_indices = set(response.used_sources)
     
-    
-    citations=[]
-    retrieved_chunks = []
-    
-    for i, chunk in enumerate(chunks, start=1):
-        if i in used_indices:
-            citations.append(
-                {
-                    "chunk_id": chunk["chunk_id"],
-                    "paper_id": chunk["paper_id"],
-                    "similarity": float(chunk["similarity"])
-                }
-            )
-        retrieved_chunks.append(
-            {
+    valid_sources = []
+    max_source_num = len(chunks)
+
+    seen = set()
+    for src_num in response.used_sources:
+        if isinstance(src_num, int) and 1 <= src_num <= max_source_num and src_num not in seen:
+            seen.add(src_num)
+            chunk = chunks[src_num - 1]
+            valid_sources.append({
+                "source_number": src_num,
                 "chunk_id": chunk["chunk_id"],
                 "paper_id": chunk["paper_id"],
-                "text": chunk["text"],
-                "similarity": float(chunk["similarity"])            }
-        )
-    
-    
-    
+                "file_name": chunk.get("file_name"),
+                "preview": chunk["text"][:220]
+            })
+
     return {
-        "answer":response.answer,
-        "citations": citations,
-        "retrieved_chunks": retrieved_chunks
+        "answer": response.answer,
+        "unsupported": response.unsupported,
+        "citations": valid_sources
     }
     

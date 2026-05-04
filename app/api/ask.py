@@ -8,9 +8,16 @@ from app.services.reranker import rerank_chunks
 router = APIRouter()
 
 
-@router.post('/ask',response_model=AskResponse)
-async def ask(req: AskRequest) -> AskResponse:
-    chunks = retrieve_chunks(req.question, k=10)
-    reranked = rerank_chunks(req.question,chunks, top_n=req.k)
-    result = generate_answer(req.question, reranked)
-    return AskResponse(**result)
+@router.post('/ask')
+async def ask(req: AskRequest):
+    chunks = retrieve_chunks(req.question, k=5)
+    
+    if not chunks:
+        return {
+            "answer": "I couldn't find relevant evidence in the indexed papers.",
+            "unsupported": True,
+            "citations": []
+        }
+    # reranked = rerank_chunks(req.question,chunks, top_n=req.k)
+    result = generate_answer(req.question, chunks)
+    return result
