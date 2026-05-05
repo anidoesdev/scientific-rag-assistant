@@ -1,11 +1,13 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List,Optional
 
 
 class Citation(BaseModel):
+    source_number: int
     chunk_id: str
     paper_id: str
-    similarity: float
+    file_name: Optional[str] = None
+    preview: str
 
 
 class RetrievedChunk(BaseModel):
@@ -22,5 +24,7 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
+    unsupported: bool
     citations: List[Citation]
-    retrieved_chunks: List[RetrievedChunk]
+    from_cache: bool = False
+    request_id: Optional[str] = None

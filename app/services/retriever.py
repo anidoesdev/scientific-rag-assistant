@@ -4,6 +4,7 @@ from app.db.session import SessionLocal
 #improving retriever
 import logging
 from pathlib import Path
+from functools import lru_cache
 
 OLLAMA_EMBED_MODEL = "nomic-embed-text"
 DEFAULT_TOP_K = 10
@@ -20,6 +21,15 @@ if not logger.handlers:
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     fh.setFormatter(formatter)
     logger.addHandler(fh)
+
+@lru_cache(maxsize=512)
+def _cached_query_embedding(normalized_question: str) -> list[float]:
+    response = ollama.embed(model=OLLAMA_EMBED_MODEL, input=normalized_question)
+    return response["embeddings"][0]
+
+def get_query_embedding(question:str) -> list[float]:
+    normalized = question.strip().lower()
+    return _cached_query_embedding(normalized)
 
 def retrieve_chunks(question:str,k:int = FINAL_K) -> list[dict]:
     response = ollama.embed(
