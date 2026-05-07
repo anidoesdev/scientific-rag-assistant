@@ -17,9 +17,6 @@ class GeneratedAnswer(BaseModel):
         description="True if the retrieved sources do not support a grounded answer"
     )
 
-OPENAI_MODEL = "gpt-5-mini"
-
-
 def build_context(chunks: list[dict]) -> str:
     parts = []
     for i,chunk in enumerate(chunks, start=1):
@@ -59,7 +56,7 @@ def build_prompt(question: str,chunks: list[dict]) -> str:
 
 def generate_answer(question: str,chunks: list[dict]) -> dict:
     llm = ChatOpenAI(
-        model=OPENAI_MODEL,
+        model=settings.generation_model,
         temperature=0,
         api_key=settings.openai_api_key
     )
@@ -86,9 +83,14 @@ def generate_answer(question: str,chunks: list[dict]) -> dict:
                 "preview": chunk["text"][:220]
             })
 
+    unsupported = bool(response.unsupported) or (len(valid_sources) == 0)
+    answer = response.answer.strip()
+    if unsupported and not answer:
+        answer = "I couldn’t find enough evidence in the indexed papers to answer that confidently."
+
     return {
-        "answer": response.answer,
-        "unsupported": response.unsupported,
+        "answer": answer,
+        "unsupported": unsupported,
         "citations": valid_sources
     }
     

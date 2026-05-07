@@ -1,15 +1,12 @@
 import ollama
 from sqlalchemy import text as sql_text
 from app.db.session import SessionLocal
-#improving retriever
 import logging
 from pathlib import Path
 from functools import lru_cache
+from app.core.config import get_settings
 
-OLLAMA_EMBED_MODEL = "nomic-embed-text"
-DEFAULT_TOP_K = 10
-FINAL_K = 5
-SIMILARITY_THRESHOLD = 0.35
+settings = get_settings()
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -24,26 +21,30 @@ if not logger.handlers:
 
 @lru_cache(maxsize=512)
 def _cached_query_embedding(normalized_question: str) -> list[float]:
-    response = ollama.embed(model=OLLAMA_EMBED_MODEL, input=normalized_question)
-    return response["embeddings"][0]
+    response = ollama.embed(model=settings.embedding_model, input=normalized_question)
+    embeddings = getattr(response, "embeddings", None) or response.get("embeddings")
+    if not embeddings:
+        raise ValueError("Embedding provider returned no embeddings")
+    vector = embeddings[0]
+    if len(vector) != settings.embedding_dimension:
+        raise ValueError(
+            f"Query embedding dimension mismatch: got {len(vector)}, expected {settings.embedding_dimension}"
+        )
+    return vector
 
 def get_query_embedding(question:str) -> list[float]:
     normalized = question.strip().lower()
     return _cached_query_embedding(normalized)
 
-def retrieve_chunks(question:str,k:int = FINAL_K) -> list[dict]:
-    response = ollama.embed(
-        model=OLLAMA_EMBED_MODEL,
-        input=question
-    )
-    query_embeddings = response.embeddings[0]
+def _vector_search(query_embeddings: list[float], top_k: int) -> list[dict]:
     stmt = sql_text(
         """
         SELECT
-        chunk_id,
-        paper_id,
-        text,
-        1 - (embedding <=> CAST(:query_embedding AS vector)) AS similarity
+            chunk_id,
+            paper_id,
+            file_name,
+            text,
+            1 - (embedding <=> CAST(:query_embedding AS vector)) AS similarity
         FROM chunks
         ORDER BY embedding <=> CAST(:query_embedding AS vector)
         LIMIT :top_k;
@@ -54,22 +55,81 @@ def retrieve_chunks(question:str,k:int = FINAL_K) -> list[dict]:
             stmt,
             {
                 "query_embedding": f"[{','.join(map(str, query_embeddings))}]",
-                "top_k": max(k,DEFAULT_TOP_K)
-            }
+                "top_k": top_k,
+            },
         ).mappings().all()
-    results =  [dict(row) for row in rows]
-    filtered = [r for r in results if float(r["similarity"]) >= SIMILARITY_THRESHOLD][:k]
+    return [dict(row) for row in rows]
+
+def _keyword_search(question: str, top_k: int) -> list[dict]:
+    stmt = sql_text(
+        """
+        SELECT
+            chunk_id,
+            paper_id,
+            file_name,
+            text,
+            0.0 AS similarity
+        FROM chunks
+        WHERE text ILIKE :q
+        ORDER BY id DESC
+        LIMIT :top_k;
+        """
+    )
+    with SessionLocal() as session:
+        rows = session.execute(
+            stmt,
+            {
+                "q": f"%{question.strip()}%",
+                "top_k": top_k,
+            },
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+def _rrf_fuse(dense: list[dict], keyword: list[dict], k: int) -> list[dict]:
+    dense_rank = {row["chunk_id"]: i + 1 for i, row in enumerate(dense)}
+    keyword_rank = {row["chunk_id"]: i + 1 for i, row in enumerate(keyword)}
+    by_id: dict[str, dict] = {}
+
+    for row in dense + keyword:
+        cid = row["chunk_id"]
+        if cid not in by_id:
+            by_id[cid] = dict(row)
+        by_id[cid]["rrf_score"] = (1.0 / (60 + dense_rank.get(cid, 10_000))) + (
+            1.0 / (60 + keyword_rank.get(cid, 10_000))
+        )
+
+    fused = sorted(
+        by_id.values(),
+        key=lambda r: (float(r.get("rrf_score", 0.0)), float(r.get("similarity", 0.0))),
+        reverse=True,
+    )
+    return fused[:k]
+
+def retrieve_chunks(question:str, k:int|None = None) -> list[dict]:
+    final_k = k or settings.retrieval_final_k
+    query_embeddings = get_query_embedding(question)
+    dense = _vector_search(query_embeddings, top_k=max(final_k, settings.retrieval_candidate_k))
+    keyword = _keyword_search(question, top_k=settings.retrieval_keyword_candidate_k)
+    fused = _rrf_fuse(dense, keyword, k=max(final_k, settings.retrieval_candidate_k))
+    filtered = [
+        r for r in fused if float(r.get("similarity", 0.0)) >= settings.retrieval_similarity_threshold
+    ]
+    if not filtered:
+        filtered = fused[:final_k]
+
+    filtered = filtered[:final_k]
     logger.info("Question: %s",question)
     for r in filtered:
         preview = r["text"][:180].replace("\n"," ")
         logger.info(
-            "chunk_id=%s paper_id=%s similarity=%.4f preview=%s",
+            "chunk_id=%s paper_id=%s similarity=%.4f rrf=%.6f preview=%s",
             r["chunk_id"],
             r["paper_id"],
             float(r["similarity"]),
+            float(r.get("rrf_score", 0.0)),
             preview,
         )
-    return filtered 
+    return filtered
 
 
 # results = retrieve_chunks("What are unidirectional error correcting codes?", k=3)

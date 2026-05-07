@@ -13,7 +13,16 @@ class Settings(BaseSettings):
     db_name: str = "ragdb"
 
     embedding_model: str = "nomic-embed-text"
+    embedding_dimension: int = 768
     openai_api_key: str
+    generation_model: str = "gpt-5-mini"
+    reranker_model: str = "gpt-5-mini"
+    retrieval_candidate_k: int = 20
+    retrieval_final_k: int = 5
+    retrieval_similarity_threshold: float = 0.3
+    retrieval_keyword_candidate_k: int = 20
+    reranker_max_chars_per_chunk: int = 1800
+    reranker_min_score: int = 4
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

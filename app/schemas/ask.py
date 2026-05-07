@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List,Optional
+from typing import List,Optional,Any
 
 
 class Citation(BaseModel):
@@ -28,3 +28,14 @@ class AskResponse(BaseModel):
     citations: List[Citation]
     from_cache: bool = False
     request_id: Optional[str] = None
+
+
+class ErrorBody(BaseModel):
+    type: str
+    message: str
+    details: Optional[Any] = None
+    request_id: Optional[str] = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorBody

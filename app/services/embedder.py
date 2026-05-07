@@ -6,9 +6,6 @@ import ollama
 settings = get_settings()
 
 
-OLLAMA_EMBED_MODEL = "nomic-embed-text"
-
-
 def embed_texts(texts: List[str]) -> List[List[float]]:
     """Return embeddings for a list of texts.
 
@@ -22,7 +19,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
     if not texts:
         return []
 
-    response = ollama.embed(model=OLLAMA_EMBED_MODEL,input=texts)
+    response = ollama.embed(model=settings.embedding_model, input=texts)
     
     
     embeddings = response.embeddings
@@ -34,6 +31,13 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
             f"Ollama returned {len(embeddings)} embeddings for {len(texts)} texts"
         )
     
+    first_dim = len(embeddings[0]) if embeddings else 0
+    if first_dim != settings.embedding_dimension:
+        raise ValueError(
+            f"Embedding dimension mismatch: got {first_dim}, expected {settings.embedding_dimension}. "
+            "Update settings.embedding_dimension or use a matching model."
+        )
+
     return embeddings
 
    

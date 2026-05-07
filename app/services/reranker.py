@@ -6,8 +6,6 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-OPENAI_MODEL = "gpt-5-mini"
-
 class ChunkScore(BaseModel):
     chunk_id: str = Field(description="The chunk id being scored")
     score: int = Field(description="Relevance score from 0 to 10",ge=0,le=10)
@@ -20,12 +18,13 @@ def build_rerank_prompt(question: str, chunks: list[dict]) -> str:
     parts = []
 
     for chunk in chunks:
+        text = chunk["text"][:settings.reranker_max_chars_per_chunk]
         parts.append(
             f"""
         chunk_id: {chunk['chunk_id']}
         paper_id: {chunk['paper_id']}
         text:
-        {chunk['text']}
+        {text}
         """.strip()
                 )
 
@@ -58,7 +57,7 @@ def rerank_chunks(question: str, chunks: list[dict], top_n: int = 5) -> list[dic
         return []
 
     llm = ChatOpenAI(
-        model=OPENAI_MODEL,
+        model=settings.reranker_model,
         temperature=0,
         api_key=settings.openai_api_key,
     )
@@ -66,7 +65,11 @@ def rerank_chunks(question: str, chunks: list[dict], top_n: int = 5) -> list[dic
     structured_llm = llm.with_structured_output(RerankOutput)
 
     prompt = build_rerank_prompt(question, chunks)
-    result = structured_llm.invoke(prompt)
+    try:
+        result = structured_llm.invoke(prompt)
+    except Exception:
+        # Safe fallback to retrieval order when reranker fails.
+        return chunks[:top_n]
 
     score_map = {item.chunk_id: item.score for item in result.rankings}
 
