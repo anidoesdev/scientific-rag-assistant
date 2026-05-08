@@ -14,5 +14,16 @@ services:
     volumes:
       - rag_pg_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    container_name: scientific_rag_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - rag_redis_data:/data
+    command: redis-server --appendonly yes
+
 volumes:
   rag_pg_data:
+  rag_redis_data:

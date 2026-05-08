@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"D:\\\\scientific-rag-assistant\\\\tests\" -Recurse | Where-Object {!$_.PSIsContainer} | Select-Object FullName)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\README.md\" -ItemType File)",
+      "Bash(Out-Null)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\requirements-dev.txt\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\conftest.py\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_cache.py\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_retriever.py\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_reranker.py\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_generator.py\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_evaluator.py\" -ItemType File)",
+      "Bash(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_api.py\" -ItemType File)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\README.md\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\requirements-dev.txt\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\conftest.py\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_cache.py\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_retriever.py\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_reranker.py\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_generator.py\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_evaluator.py\" -ItemType File -Force)",
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_api.py\" -ItemType File -Force)"
+    ]
+  }
+}

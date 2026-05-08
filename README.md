@@ -1,126 +1,130 @@
 # Scientific RAG Assistant
 
-A retrieval-augmented generation (RAG) system for question-answering over scientific papers. It combines vector similarity search with LLM-based reranking and grounded answer synthesis, with citations back to source chunks.
+A retrieval-augmented generation (RAG) system for question-answering over scientific papers. Ask natural-language questions and get grounded, cited answers backed by a multi-stage retrieval pipeline.
 
 ---
 
 ## Architecture
 
-```
-PDF Papers → Chunking → Embeddings (Ollama) → PostgreSQL pgvector
-                                                        ↓
-User Question → Cache Check → Vector Retrieval → LLM Reranking → Answer Generation → Response + Citations
+```mermaid
+flowchart TD
+    U([User]) -->|question| FE[Next.js Frontend]
+    FE -->|POST /api/ask| API[FastAPI]
+
+    API -->|cache hit| FE
+    API --> R[Retriever]
+
+    R -->|embed query| OL[Ollama\nnomic-embed-text]
+    R -->|cosine search top-20| PG[(PostgreSQL + pgvector)]
+    R -->|keyword ILIKE top-20| PG
+    R -->|RRF fusion + threshold filter| RR[Reranker]
+
+    RR -->|score 0-10 per chunk| LLM[OpenAI LLM]
+    RR -->|top-k chunks| GEN[Generator]
+
+    GEN -->|synthesise answer + sources| LLM
+    GEN --> CACHE[Redis Cache\n1-hr TTL]
+    CACHE -->|answer + citations| FE
 ```
 
-**Multi-stage retrieval pipeline:**
-
-1. **Ingest** — PDFs are chunked (1000 chars, 150 overlap) and stored as JSONL
-2. **Embed** — Chunks are embedded via Ollama (`nomic-embed-text`) and upserted into PostgreSQL with pgvector
-3. **Retrieve** — Query is embedded and top-10 candidates are fetched via cosine similarity (`<=>`)
-4. **Rerank** — OpenAI LLM scores each chunk 0–10 for relevance; top-k selected
-5. **Generate** — OpenAI LLM synthesizes a grounded answer using only the provided chunks, with source citations
-6. **Cache** — Results are cached in-memory (1-hour TTL, keyed by SHA256 of normalized question)
+**Query pipeline:**
+1. Check Redis cache (SHA-256 key, 1-hour TTL)
+2. Embed query — Ollama `nomic-embed-text`, 768-dim
+3. Dense search — cosine similarity, top-20 candidates from pgvector
+4. Keyword search — `ILIKE`, top-20 candidates
+5. RRF fusion — merge both lists by reciprocal rank
+6. Similarity threshold filter (≥ 0.3); fallback to top-k if none pass
+7. LLM reranker — score each chunk 0–10 for relevance
+8. LLM generator — synthesise grounded answer with inline source numbers
+9. Store in Redis, return with citations
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|---|---|
-| API | FastAPI + Uvicorn |
-| LLM (reranking + generation) | OpenAI `gpt-4o-mini` |
-| Embeddings | Ollama `nomic-embed-text` (local) |
+|-------|-----------|
+| Frontend | Next.js 16, React 18, Tailwind CSS, TypeScript |
+| Backend API | FastAPI + Uvicorn |
+| Embeddings | Ollama `nomic-embed-text` (local, 768-dim) |
+| LLM | OpenAI `gpt-4o-mini` |
 | Vector DB | PostgreSQL 16 + pgvector |
-| ORM | SQLAlchemy 2.0 |
-| PDF parsing | PyMuPDF (fitz) |
+| Cache | Redis 7 |
+| ORM | SQLAlchemy 2 |
+| PDF parsing | PyMuPDF |
 | Chunking | LangChain `RecursiveCharacterTextSplitter` |
-| Validation | Pydantic v2 |
 
 ---
 
-## Project Structure
+## Prerequisites
 
-```
-├── app/
-│   ├── api/ask.py              # POST /api/ask endpoint
-│   ├── core/config.py          # Settings (env vars, DB, model config)
-│   ├── db/session.py           # SQLAlchemy session factory
-│   ├── prompts/                # Prompt templates for generation & query rewrite
-│   ├── schemas/ask.py          # Request/response Pydantic models
-│   └── services/
-│       ├── cache.py            # In-memory query cache (1hr TTL)
-│       ├── chunker.py          # PDF loading and text chunking
-│       ├── embedder.py         # Ollama embedding client
-│       ├── generator.py        # LLM answer synthesis
-│       ├── reranker.py         # LLM-based chunk reranking
-│       └── retriever.py        # pgvector similarity search
-├── data/
-│   ├── raw/                    # Input PDF papers
-│   └── parsed/chunks.jsonl     # Chunked output
-├── eval/
-│   └── retrieval_eval.json     # Test questions with expected papers
-├── scripts/
-│   ├── embed_chunks.py         # Batch embed chunks → PostgreSQL
-│   ├── eval_retrieval.py       # Evaluate retriever (Hit@K, MRR)
-│   └── eval_reranker.py        # Compare baseline vs reranked retrieval
-├── logs/retrieval.log          # Query logs with similarity scores
-├── main.py                     # FastAPI app entry point
-├── docker-compose.yml          # PostgreSQL + pgvector container
-└── requirements.txt
-```
-
----
-
-## Setup
-
-### Prerequisites
-
-- Python 3.10+
-- Docker (for PostgreSQL)
-- [Ollama](https://ollama.ai) running locally with `nomic-embed-text` pulled
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- Python 3.11+
+- Node.js 18+
+- [Ollama](https://ollama.com/) installed and running
 - OpenAI API key
 
-### 1. Start PostgreSQL
+---
+
+## Quick Start
+
+### 1. Clone and configure
+
+```bash
+git clone <repo-url>
+cd scientific-rag-assistant
+cp .env.example .env
+# edit .env and add your OPENAI_API_KEY
+```
+
+`.env` reference:
+
+```env
+OPENAI_API_KEY=sk-...
+
+DB_HOST=localhost
+DB_PORT=5732
+DB_USER=raguser
+DB_PASSWORD=ragpassword
+DB_NAME=ragdb
+
+REDIS_HOST=localhost
+REDIS_PORT=6379
+CACHE_TTL_SECONDS=3600
+```
+
+### 2. Start infrastructure
 
 ```bash
 docker-compose up -d
 ```
 
-This starts a PostgreSQL 16 container with pgvector on port **5732**.
+Starts PostgreSQL 16 + pgvector on port 5732 and Redis 7 on port 6379.
 
-### 2. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Configure environment
-
-Create a `.env` file in the project root:
-
-```env
-openai_api_key=sk-...
-db_host=localhost
-db_port=5732
-db_user=raguser
-db_password=ragpassword
-db_name=ragdb
-embedding_model=nomic-embed-text
-```
-
-### 4. Pull the embedding model
+### 3. Pull the embedding model
 
 ```bash
 ollama pull nomic-embed-text
 ```
 
-### 5. Ingest papers
-
-Place PDF files in `data/raw/`, then run the ingestion pipeline:
+### 4. Install Python dependencies
 
 ```bash
-# Chunk PDFs and save to data/parsed/chunks.jsonl
-python -c "from app.services.chunker import chunk_papers; chunk_papers()"
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### 5. Ingest papers
+
+```bash
+# Chunk PDFs in data/raw/ → data/parsed/chunks.jsonl
+python -m app.services.chunker
 
 # Embed chunks and upsert into PostgreSQL
 python scripts/embed_chunks.py
@@ -129,108 +133,168 @@ python scripts/embed_chunks.py
 ### 6. Start the API
 
 ```bash
-python main.py
+uvicorn main:app --reload
 ```
 
-The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+- API: `http://localhost:8000`
+- Interactive docs: `http://localhost:8000/docs`
+
+### 7. Start the frontend
+
+```bash
+cd frontend
+cp .env.example .env.local   # sets NEXT_PUBLIC_API_URL=http://localhost:8000
+npm install
+npm run dev
+```
+
+Frontend: `http://localhost:3000`
 
 ---
 
-## API
+## API Reference
 
 ### `POST /api/ask`
 
 Ask a question over the indexed papers.
 
-**Request:**
+**Request body**
+
 ```json
 {
-  "question": "What are the main approaches to few-shot learning?",
+  "question": "How do transformer models handle long-range dependencies?",
   "k": 5
 }
 ```
 
 | Field | Type | Default | Description |
-|---|---|---|---|
-| `question` | string | required | Natural language question |
-| `k` | int | 5 | Number of chunks to retrieve (1–20) |
+|-------|------|---------|-------------|
+| `question` | string | required | Natural-language question |
+| `k` | int 1–20 | 5 | Number of chunks to retrieve and cite |
 
-**Response:**
+**Response**
+
 ```json
 {
-  "answer": "Few-shot learning approaches include...",
+  "answer": "Transformer models handle long-range dependencies through self-attention [1]...",
   "unsupported": false,
   "citations": [
     {
       "source_number": 1,
-      "chunk_id": "paper_001_chunk_0042",
-      "paper_id": "paper_001",
-      "file_name": "arxiv-2024.pdf",
-      "preview": "...first 220 characters of the chunk..."
+      "chunk_id": "paper_003_chunk_12",
+      "paper_id": "paper_003",
+      "file_name": "attention_is_all_you_need.pdf",
+      "preview": "The attention mechanism allows the model to..."
     }
   ],
   "from_cache": false,
-  "request_id": "abc123"
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
-If the retrieved chunks don't support an answer, `unsupported` is set to `true` and the answer explains the gap.
+When `unsupported: true`, the indexed papers did not contain sufficient evidence. `citations` will be empty.
 
----
+### `GET /health`
 
-## Database Schema
+Check liveness and all dependencies.
 
-```sql
-CREATE TABLE chunks (
-  chunk_id   TEXT PRIMARY KEY,
-  paper_id   TEXT,
-  file_name  TEXT,
-  source     TEXT,
-  chunk_index             INT,
-  total_chunks_for_paper  INT,
-  text       TEXT,
-  embedding  vector(768)
-);
+**Response**
+
+```json
+{
+  "status": "ok",
+  "uptime_seconds": 142.3,
+  "checks": {
+    "database": { "status": "ok" },
+    "ollama":   { "status": "ok" },
+    "redis":    { "status": "ok" }
+  }
+}
 ```
+
+`status` is `"degraded"` if any dependency check fails. Individual checks include a `"detail"` field explaining the failure.
 
 ---
 
 ## Evaluation
 
-### Retrieval quality
+### Retrieval — Hit@K and MRR
 
 ```bash
 python scripts/eval_retrieval.py
 ```
 
-Measures **Hit@K** and **MRR** against `eval/retrieval_eval.json` (test questions with expected paper IDs).
-
-### Reranker impact
+### Reranker — baseline vs reranked comparison
 
 ```bash
 python scripts/eval_reranker.py
 ```
 
-Compares baseline top-K (by cosine similarity) against LLM-reranked results, reporting Hit@K and MRR for both.
+### Answer quality — faithfulness, relevance
+
+```bash
+python scripts/eval_answers.py
+```
+
+| Metric | Score |
+|--------|-------|
+| Hit@5 | — |
+| MRR | — |
+| Avg Faithfulness | — |
+| Avg Answer Relevance | — |
+| Avg Context Relevance | — |
+
+> Run the eval scripts and fill in the table before sharing the project.
 
 ---
 
-## Reranking Scoring Rubric
+## Running Tests
 
-The reranker prompt instructs the LLM to score each chunk on a 0–10 scale:
-
-| Score | Meaning |
-|---|---|
-| 10 | Directly answers the question |
-| 7–9 | Highly relevant supporting evidence |
-| 4–6 | Somewhat relevant background |
-| 1–3 | Loosely related |
-| 0 | Irrelevant |
-
-Chunks are sorted by rerank score (primary) then cosine similarity (tiebreaker).
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
 
 ---
 
-## Caching
+## Project Structure
 
-Repeated questions bypass the retrieval and generation pipeline entirely. The cache key is a SHA256 hash of the lowercased, stripped question string. Entries expire after 1 hour. Cached responses include `"from_cache": true` in the response body.
+```
+scientific-rag-assistant/
+├── app/
+│   ├── api/
+│   │   ├── ask.py            # POST /api/ask
+│   │   └── health.py         # GET /health
+│   ├── core/
+│   │   └── config.py         # Pydantic settings (env-driven)
+│   ├── db/
+│   │   └── session.py        # SQLAlchemy engine + SessionLocal
+│   ├── prompts/              # Prompt templates
+│   ├── schemas/
+│   │   └── ask.py            # AskRequest / AskResponse / Citation
+│   └── services/
+│       ├── cache.py          # Redis answer cache (1-hr TTL)
+│       ├── chunker.py        # PDF → text chunks
+│       ├── embedder.py       # Ollama embedding client
+│       ├── evaluator.py      # LLM-based RAG quality evaluator
+│       ├── generator.py      # LLM answer synthesis with citations
+│       ├── reranker.py       # LLM chunk relevance scorer
+│       └── retriever.py      # pgvector search + RRF fusion
+├── data/
+│   ├── raw/                  # Source PDF papers
+│   └── parsed/
+│       └── chunks.jsonl      # Pre-chunked text
+├── eval/
+│   └── retrieval_eval.json   # Evaluation questions + expected papers
+├── frontend/                 # Next.js app
+├── scripts/
+│   ├── embed_chunks.py       # Batch ingestion
+│   ├── eval_retrieval.py     # Hit@K / MRR metrics
+│   └── eval_reranker.py      # Reranker comparison
+├── tests/                    # pytest unit tests
+├── docker-compose.yml        # PostgreSQL + Redis
+├── init.sql                  # DB schema (chunks table + indexes)
+├── main.py                   # FastAPI app entry point + CORS
+├── requirements.txt          # Runtime dependencies
+└── requirements-dev.txt      # Test/dev dependencies
+```

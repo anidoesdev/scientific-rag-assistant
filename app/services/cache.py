@@ -1,40 +1,68 @@
-from typing import Dict, Tuple
-from functools import lru_cache
 import hashlib
 import json
-import time
+import logging
+from typing import Dict, Optional
 
-CacheValue = Dict  # your answer schema dict
+import redis
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+_client: Optional[redis.Redis] = None
 
 
-def _hash_query(question: str) -> str:
-    normalized = question.strip().lower()
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+def _get_client() -> Optional[redis.Redis]:
+    global _client
+    if _client is None:
+        try:
+            _client = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                db=0,
+                decode_responses=True,
+                socket_connect_timeout=2,
+            )
+            _client.ping()
+        except Exception as e:
+            logger.warning("Redis unavailable: %s — cache disabled", e)
+            _client = None
+    return _client
+
+
+def _cache_key(question: str) -> str:
+    digest = hashlib.sha256(question.strip().lower().encode()).hexdigest()
+    return f"rag:answer:{digest}"
 
 
 class AnswerCache:
     def __init__(self, ttl_seconds: int = 3600):
-        self._store: Dict[str, Tuple[float, CacheValue]] = {}
         self.ttl = ttl_seconds
 
-    def get(self, question: str) -> CacheValue | None:
-        key = _hash_query(question)
-        entry = self._store.get(key)
-        if not entry:
+    def get(self, question: str) -> Optional[Dict]:
+        client = _get_client()
+        if client is None:
+            return None
+        try:
+            raw = client.get(_cache_key(question))
+            return json.loads(raw) if raw else None
+        except Exception as e:
+            logger.warning("Cache get failed: %s", e)
             return None
 
-        ts, value = entry
-        if time.time() - ts > self.ttl:
-            self._store.pop(key, None)
-            return None
-
-        return value
-
-    def set(self, question: str, value: CacheValue) -> None:
-        key = _hash_query(question)
-        self._store[key] = (time.time(), value)
+    def set(self, question: str, value: Dict) -> None:
+        client = _get_client()
+        if client is None:
+            return
+        try:
+            client.set(_cache_key(question), json.dumps(value), ex=self.ttl)
+        except Exception as e:
+            logger.warning("Cache set failed: %s", e)
 
 
-@lru_cache(maxsize=1)
+_cache = AnswerCache(ttl_seconds=settings.cache_ttl_seconds)
+
+
 def get_answer_cache() -> AnswerCache:
-    return AnswerCache(ttl_seconds=3600)
+    return _cache

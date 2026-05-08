@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     reranker_max_chars_per_chunk: int = 1800
     reranker_min_score: int = 4
 
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    cache_ttl_seconds: int = 3600
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
