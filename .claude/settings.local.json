@@ -20,7 +20,13 @@
       "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_reranker.py\" -ItemType File -Force)",
       "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_generator.py\" -ItemType File -Force)",
       "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_evaluator.py\" -ItemType File -Force)",
-      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_api.py\" -ItemType File -Force)"
+      "PowerShell(New-Item -Path \"D:\\\\scientific-rag-assistant\\\\tests\\\\test_api.py\" -ItemType File -Force)",
+      "Bash(Get-ChildItem -Path \"D:\\\\scientific-rag-assistant\" -Recurse -Depth 3)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(xargs grep -l \"ingest_router\\\\|upload_router\")",
+      "Bash(xargs grep -l \"RAW_DIR\\\\|ingest_all_raw\\\\|_already_indexed_sources\")",
+      "Bash(tree -L 3 /d/scientific-rag-assistant --exclude '.venv|node_modules' -I '__pycache__')"
     ]
   }
 }

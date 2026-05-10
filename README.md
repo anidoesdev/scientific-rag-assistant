@@ -68,7 +68,55 @@ flowchart TD
 
 ## Quick Start
 
-### 1. Clone and configure
+Two ways to run the project: **Docker Compose** (recommended, one command) or **local dev** (faster iteration).
+
+---
+
+### Option A — Docker Compose (full stack)
+
+> Requires: Docker Desktop, Ollama running on the host, OpenAI API key.
+
+```bash
+git clone <repo-url>
+cd scientific-rag-assistant
+
+# 1. Configure secrets
+cp .env.example .env
+# → open .env and set OPENAI_API_KEY=sk-...
+
+# 2. Pull the embedding model on your host
+ollama pull nomic-embed-text
+
+# 3. Build and start all services
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| API | http://localhost:8000 |
+| API docs | http://localhost:8000/docs |
+| PostgreSQL | localhost:5732 |
+| Redis | localhost:6379 |
+
+On **Linux**, Docker containers cannot reach the host via `host.docker.internal`. Edit `docker-compose.yml` and change:
+```yaml
+OLLAMA_HOST: http://172.17.0.1:11434
+```
+
+To ingest pre-existing PDFs into the running container:
+
+```bash
+# Copy PDFs into the data volume, then re-index
+docker compose exec api python -m app.services.chunker
+docker compose exec api python scripts/embed_chunks.py
+```
+
+Or just use the **Upload** button in the frontend — it handles the whole pipeline.
+
+---
+
+### Option B — Local development
 
 ```bash
 git clone <repo-url>
@@ -77,37 +125,21 @@ cp .env.example .env
 # edit .env and add your OPENAI_API_KEY
 ```
 
-`.env` reference:
-
-```env
-OPENAI_API_KEY=sk-...
-
-DB_HOST=localhost
-DB_PORT=5732
-DB_USER=raguser
-DB_PASSWORD=ragpassword
-DB_NAME=ragdb
-
-REDIS_HOST=localhost
-REDIS_PORT=6379
-CACHE_TTL_SECONDS=3600
-```
-
-### 2. Start infrastructure
+### 1. Start infrastructure only
 
 ```bash
-docker-compose up -d
+docker compose up -d db redis
 ```
 
 Starts PostgreSQL 16 + pgvector on port 5732 and Redis 7 on port 6379.
 
-### 3. Pull the embedding model
+### 2. Pull the embedding model
 
 ```bash
 ollama pull nomic-embed-text
 ```
 
-### 4. Install Python dependencies
+### 3. Install Python dependencies
 
 ```bash
 python -m venv .venv
@@ -120,7 +152,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 5. Ingest papers
+### 4. Ingest papers
 
 ```bash
 # Chunk PDFs in data/raw/ → data/parsed/chunks.jsonl
@@ -130,7 +162,7 @@ python -m app.services.chunker
 python scripts/embed_chunks.py
 ```
 
-### 6. Start the API
+### 5. Start the API
 
 ```bash
 uvicorn main:app --reload
@@ -139,11 +171,10 @@ uvicorn main:app --reload
 - API: `http://localhost:8000`
 - Interactive docs: `http://localhost:8000/docs`
 
-### 7. Start the frontend
+### 6. Start the frontend
 
 ```bash
 cd frontend
-cp .env.example .env.local   # sets NEXT_PUBLIC_API_URL=http://localhost:8000
 npm install
 npm run dev
 ```
@@ -286,14 +317,17 @@ scientific-rag-assistant/
 │       └── chunks.jsonl      # Pre-chunked text
 ├── eval/
 │   └── retrieval_eval.json   # Evaluation questions + expected papers
-├── frontend/                 # Next.js app
+├── frontend/                 # Next.js app (Dockerfile inside)
 ├── scripts/
 │   ├── embed_chunks.py       # Batch ingestion
 │   ├── eval_retrieval.py     # Hit@K / MRR metrics
 │   └── eval_reranker.py      # Reranker comparison
 ├── tests/                    # pytest unit tests
-├── docker-compose.yml        # PostgreSQL + Redis
-├── init.sql                  # DB schema (chunks table + indexes)
+├── Dockerfile                # FastAPI container image
+├── docker-compose.yml        # Full stack: API + frontend + PostgreSQL + Redis
+├── .dockerignore
+├── .env.example              # Environment variable reference
+├── init.sql                  # DB schema (chunks table + pgvector indexes)
 ├── main.py                   # FastAPI app entry point + CORS
 ├── requirements.txt          # Runtime dependencies
 └── requirements-dev.txt      # Test/dev dependencies

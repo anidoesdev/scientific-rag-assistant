@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets – NEVER bake into the image
+.env
+*.env
+
+# Data – mounted as a Docker volume at runtime
+data/
+
+# Logs
+logs/
+
+# Tests & dev tooling
+tests/
+pytest.ini
+requirements-dev.txt
+.pytest_cache/
+
+# Notebooks
+notebooks/
+
+# Evaluation scripts / outputs
+eval/
+
+# Frontend is its own Docker image
+frontend/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Editor / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Docs (no need in image)
+README.md

@@ -1,7 +1,37 @@
+# Python
 .venv
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Secrets
 .env
+*.env
+
+# Node
 node_modules
-.next
-dist
 frontend/node_modules
+
+# Next.js
+.next
 frontend/.next
+dist
+
+# Data – too large for git (use volumes / object storage)
+data/raw/
+data/parsed/
+
+# Test artefacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Editor / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Logs
+logs/*.log

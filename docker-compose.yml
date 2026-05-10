@@ -1,29 +1,122 @@
 version: "3.9"
 
+# ── Scientific RAG Assistant – full local stack ──────────────────────────────
+#
+#  Services:
+#    db       – PostgreSQL 16 + pgvector
+#    redis    – Redis 7 (answer cache)
+#    api      – FastAPI backend  → http://localhost:8000
+#    frontend – Next.js 16       → http://localhost:3000
+#
+#  Prerequisites:
+#    • Ollama running on the HOST  (ollama serve)
+#    • nomic-embed-text pulled     (ollama pull nomic-embed-text)
+#    • .env file at project root   (see .env.example)
+#
+#  First-time setup:
+#    docker compose up -d db redis
+#    # wait ~5 s for Postgres to initialise init.sql
+#    docker compose up -d api frontend
+#
+#  Quick start (all at once):
+#    docker compose up --build
+# ---------------------------------------------------------------------------
+
 services:
+
+  # ── PostgreSQL + pgvector ──────────────────────────────────────────────────
   db:
     image: pgvector/pgvector:pg16
-    container_name: scientific_rag_pg
+    container_name: rag_pg
     restart: unless-stopped
     environment:
-      POSTGRES_USER: raguser
+      POSTGRES_USER:     raguser
       POSTGRES_PASSWORD: ragpassword
-      POSTGRES_DB: ragdb
+      POSTGRES_DB:       ragdb
     ports:
-      - "5732:5432"
+      - "5732:5432"           # host:container – keeps the default dev port
     volumes:
       - rag_pg_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # runs once on first boot
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
+  # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: scientific_rag_redis
+    container_name: rag_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - rag_redis_data:/data
     command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
+  # ── FastAPI backend ────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Uploaded / pre-existing PDFs persist across container restarts
+      - rag_data:/app/data
+    environment:
+      # ── Database (internal hostname = service name) ──
+      DB_HOST:     db
+      DB_PORT:     5432        # internal port, NOT 5732
+      DB_USER:     raguser
+      DB_PASSWORD: ragpassword
+      DB_NAME:     ragdb
+
+      # ── Redis ──
+      REDIS_HOST:  redis
+      REDIS_PORT:  6379
+
+      # ── Ollama (running on the Docker host) ──
+      # Docker Desktop (Windows / macOS):  host.docker.internal
+      # Linux (bridge network):            172.17.0.1
+      OLLAMA_HOST: http://host.docker.internal:11434
+
+      # ── OpenAI – loaded from .env file ──
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    env_file:
+      - .env          # fallback / additional secrets; DB/Redis above take precedence
+
+  # ── Next.js frontend ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked into the JS bundle – must point to where the BROWSER reaches the API.
+        # For local docker-compose this is always localhost:8000.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: rag_frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+# ── Volumes ────────────────────────────────────────────────────────────────
 volumes:
   rag_pg_data:
   rag_redis_data:
+  rag_data:       # shared data/ dir between host and api container

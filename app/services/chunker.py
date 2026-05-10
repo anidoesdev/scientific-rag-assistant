@@ -12,38 +12,37 @@ PARSED_DIR.mkdir(parents=True, exist_ok=True)
 
 CHUNKS_PATH = PARSED_DIR / "chunks.jsonl"
 
+TEXT_SPLITTER = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
 
 
-def load_papers() -> List[Dict[str,Any]]:
-    pdf_files = sorted(RAW_DIR.glob("*.pdf"))
-
-    all_papers: List[Dict[str,Any]] = []
-    
-    for paper_idx, pdf_path in enumerate(pdf_files,start=1):
-        loader = PyMuPDFLoader(file_path=str(pdf_path))
-        page_docs = list(loader.lazy_load()) 
-
-        paper_id = f"paper_{paper_idx:03d}"
-        
-        paper_record: Dict[str,Any] = {
-            "paper_id": paper_id,
-            "file_name": pdf_path.name,
-            "file_path": str(pdf_path),
-            "total_pages_loaded": len(page_docs),
-            "pages": []
-        }
-        
-        for page_idx, page_doc in enumerate(page_docs):
-            page_record = {
-                "page_number": page_doc.metadata.get("page",page_idx),
-                "total_pages": page_doc.metadata.get("total_pages"),
-                "source": page_doc.metadata.get("source"),
-                "text": page_doc.page_content or "",
-                "raw_metadata": page_doc.metadata,
+def load_paper(pdf_path: Path, paper_id: str) -> Dict[str, Any]:
+    """Load a single PDF into a paper record dict."""
+    loader = PyMuPDFLoader(file_path=str(pdf_path))
+    page_docs = list(loader.lazy_load())
+    return {
+        "paper_id": paper_id,
+        "file_name": pdf_path.name,
+        "file_path": str(pdf_path),
+        "total_pages_loaded": len(page_docs),
+        "pages": [
+            {
+                "page_number": doc.metadata.get("page", i),
+                "total_pages": doc.metadata.get("total_pages"),
+                "source": doc.metadata.get("source"),
+                "text": doc.page_content or "",
+                "raw_metadata": doc.metadata,
             }
-            paper_record["pages"].append(page_record)
-        all_papers.append(paper_record)
-    
+            for i, doc in enumerate(page_docs)
+        ],
+    }
+
+
+def load_papers() -> List[Dict[str, Any]]:
+    pdf_files = sorted(RAW_DIR.glob("*.pdf"))
+    all_papers = [
+        load_paper(pdf_path, f"paper_{paper_idx:03d}")
+        for paper_idx, pdf_path in enumerate(pdf_files, start=1)
+    ]
     print(f"Loaded {len(all_papers)} papers from {RAW_DIR}")
     return all_papers
 
@@ -88,27 +87,22 @@ def build_paper_text(paper: Dict[str,Any]) -> str:
 
 def chunk_papers() -> None:
     papers = load_papers()
-    
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size = 1000,
-        chunk_overlap = 150
-    )
-    
+
     total_chunks = 0
-    
+
     with CHUNKS_PATH.open("w", encoding="utf-8") as f_out:
         for paper in papers:
             paper_id=paper["paper_id"]
             file_name = paper["file_name"]
             source = paper["file_path"]
-            
+
             paper_text = build_paper_text(paper)
             if not paper_text:
                 print(f"[WARN] Paper {paper_id} ({file_name}) has empty cleaned text; skipping")
                 continue
-            
+
             from langchain_classic.schema import Document
-            
+
             base_doc = Document(
                 page_content=paper_text,
                 metadata = {
@@ -117,7 +111,7 @@ def chunk_papers() -> None:
                     "source": source,
                 }
             )
-            chunk_docs = text_splitter.split_documents([base_doc])
+            chunk_docs = TEXT_SPLITTER.split_documents([base_doc])
             
             total_for_paper = len(chunk_docs)
             
@@ -140,6 +134,5 @@ def chunk_papers() -> None:
                 f_out.write(json.dumps(chunk_obj, ensure_ascii=False) + "\n")
                 total_chunks += 1
     print(f"Finished chunking: {total_chunks} chunks written to {CHUNKS_PATH}")
-
-if __name__ == "__main__":
-    chunk_papers()
+    
+    
