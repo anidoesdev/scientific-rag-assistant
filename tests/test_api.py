@@ -10,7 +10,7 @@ client = TestClient(app)
 
 def test_health_returns_200_when_all_ok():
     with patch("app.api.health._check_database", return_value={"status": "ok"}), \
-         patch("app.api.health._check_ollama", return_value={"status": "ok"}), \
+         patch("app.api.health._check_openai", return_value={"status": "ok"}), \
          patch("app.api.health._check_redis", return_value={"status": "ok"}):
         resp = client.get("/health")
 
@@ -18,12 +18,12 @@ def test_health_returns_200_when_all_ok():
     body = resp.json()
     assert body["status"] == "ok"
     assert "uptime_seconds" in body
-    assert set(body["checks"].keys()) == {"database", "ollama", "redis"}
+    assert set(body["checks"].keys()) == {"database", "openai", "redis"}
 
 
 def test_health_status_degraded_when_db_is_down():
     with patch("app.api.health._check_database", return_value={"status": "error", "detail": "refused"}), \
-         patch("app.api.health._check_ollama", return_value={"status": "ok"}), \
+         patch("app.api.health._check_openai", return_value={"status": "ok"}), \
          patch("app.api.health._check_redis", return_value={"status": "ok"}):
         resp = client.get("/health")
 
@@ -33,7 +33,7 @@ def test_health_status_degraded_when_db_is_down():
 
 def test_health_status_degraded_when_redis_is_down():
     with patch("app.api.health._check_database", return_value={"status": "ok"}), \
-         patch("app.api.health._check_ollama", return_value={"status": "ok"}), \
+         patch("app.api.health._check_openai", return_value={"status": "ok"}), \
          patch("app.api.health._check_redis", return_value={"status": "error", "detail": "refused"}):
         resp = client.get("/health")
 
@@ -109,6 +109,24 @@ def test_ask_returns_answer_when_pipeline_succeeds():
     assert body["answer"] == "Attention is a mechanism."
     assert body["from_cache"] is False
     assert "request_id" in body
+
+
+# ── /api/ask — low rerank score ───────────────────────────────────────────────
+
+def test_ask_returns_unsupported_when_rerank_score_below_threshold():
+    mock_cache = MagicMock()
+    mock_cache.get.return_value = None
+
+    low_score_chunks = [{**c, "rerank_score": 1} for c in SAMPLE_CHUNKS]
+    with patch("app.api.ask.get_answer_cache", return_value=mock_cache), \
+         patch("app.api.ask.retrieve_chunks", return_value=SAMPLE_CHUNKS), \
+         patch("app.api.ask.rerank_chunks", return_value=low_score_chunks):
+        resp = client.post("/api/ask", json={"question": "vague question", "k": 5})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["unsupported"] is True
+    assert body["citations"] == []
 
 
 # ── /api/ask — input validation ───────────────────────────────────────────────

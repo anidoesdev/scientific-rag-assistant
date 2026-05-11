@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     db_password: str = "ragpassword"
     db_name: str = "ragdb"
 
-    embedding_model: str = "nomic-embed-text"
-    embedding_dimension: int = 768
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
     openai_api_key: str
     generation_model: str = "gpt-5-mini"
     reranker_model: str = "gpt-5-mini"

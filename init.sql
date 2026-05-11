@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index       INTEGER NOT NULL,
     total_chunks_for_paper INTEGER NOT NULL,
     text              TEXT NOT NULL,
-    embedding         VECTOR(768),  -- nomic-embed-text output dimension
+    embedding         VECTOR(1536),  -- text-embedding-3-small output dimension
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 

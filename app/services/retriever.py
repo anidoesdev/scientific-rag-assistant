@@ -1,4 +1,4 @@
-import ollama
+from openai import OpenAI
 from sqlalchemy import text as sql_text
 from app.db.session import SessionLocal
 import logging
@@ -7,6 +7,15 @@ from functools import lru_cache
 from app.core.config import get_settings
 
 settings = get_settings()
+_openai_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=settings.openai_api_key)
+    return _openai_client
+
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -21,8 +30,8 @@ if not logger.handlers:
 
 @lru_cache(maxsize=512)
 def _cached_query_embedding(normalized_question: str) -> list[float]:
-    response = ollama.embed(model=settings.embedding_model, input=normalized_question)
-    embeddings = getattr(response, "embeddings", None) or response.get("embeddings")
+    response = _get_client().embeddings.create(model=settings.embedding_model, input=normalized_question)
+    embeddings = [item.embedding for item in response.data]
     if not embeddings:
         raise ValueError("Embedding provider returned no embeddings")
     vector = embeddings[0]

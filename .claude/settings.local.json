@@ -26,7 +26,16 @@
       "Bash(Format-Table -AutoSize)",
       "Bash(xargs grep -l \"ingest_router\\\\|upload_router\")",
       "Bash(xargs grep -l \"RAW_DIR\\\\|ingest_all_raw\\\\|_already_indexed_sources\")",
-      "Bash(tree -L 3 /d/scientific-rag-assistant --exclude '.venv|node_modules' -I '__pycache__')"
+      "Bash(tree -L 3 /d/scientific-rag-assistant --exclude '.venv|node_modules' -I '__pycache__')",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(pip install *)",
+      "Bash(python -c \"import redis; print\\('redis ok'\\)\")",
+      "Bash(python -c \"import ollama; print\\('ollama ok'\\)\")",
+      "Bash(python -c \"import langchain_community; print\\('lc_community ok'\\)\")",
+      "Bash(python -c \"import langchain_text_splitters; print\\('lc_splitters ok'\\)\")",
+      "Bash(python -c \"import langchain_openai; print\\('lc_openai ok'\\)\")",
+      "Bash(Get-ChildItem -Path \"d:\\\\scientific-rag-assistant\" -Recurse -Force)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }

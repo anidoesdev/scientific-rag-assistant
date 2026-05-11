@@ -9,9 +9,7 @@ version: "3.9"
 #    frontend – Next.js 16       → http://localhost:3000
 #
 #  Prerequisites:
-#    • Ollama running on the HOST  (ollama serve)
-#    • nomic-embed-text pulled     (ollama pull nomic-embed-text)
-#    • .env file at project root   (see .env.example)
+#    • .env file at project root with OPENAI_API_KEY set (see .env.example)
 #
 #  First-time setup:
 #    docker compose up -d db redis
@@ -89,12 +87,7 @@ services:
       REDIS_HOST:  redis
       REDIS_PORT:  6379
 
-      # ── Ollama (running on the Docker host) ──
-      # Docker Desktop (Windows / macOS):  host.docker.internal
-      # Linux (bridge network):            172.17.0.1
-      OLLAMA_HOST: http://host.docker.internal:11434
-
-      # ── OpenAI – loaded from .env file ──
+      # ── OpenAI ──
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     env_file:
       - .env          # fallback / additional secrets; DB/Redis above take precedence
