@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimension: int = 1536
     openai_api_key: str
-    generation_model: str = "gpt-5-mini"
-    reranker_model: str = "gpt-5-mini"
+    generation_model: str = "gpt-5.4-mini"
+    reranker_model: str = "gpt-5.4-mini"
     retrieval_candidate_k: int = 20
     retrieval_final_k: int = 5
     retrieval_similarity_threshold: float = 0.3
