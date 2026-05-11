@@ -1,11 +1,21 @@
 import shutil
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+from sqlalchemy import text as sql_text
 
 from app.db.session import SessionLocal
 from app.services.pipeline import RAW_DIR, ingest_single
 
 router = APIRouter()
+
+
+@router.get("/papers")
+async def list_papers():
+    with SessionLocal() as session:
+        rows = session.execute(
+            sql_text("SELECT DISTINCT paper_id, file_name FROM chunks ORDER BY paper_id")
+        ).all()
+    return [{"paper_id": r[0], "file_name": r[1]} for r in rows]
 
 
 @router.post("/upload")

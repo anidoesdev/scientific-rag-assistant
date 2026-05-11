@@ -23,5 +23,5 @@ app.add_middleware(
 
 app.include_router(ask_router, prefix="/api")
 app.include_router(health_router)
-app.include_router(upload_router)
-app.include_router(ingest_router)
+app.include_router(upload_router, prefix="/api")
+app.include_router(ingest_router, prefix="/api")

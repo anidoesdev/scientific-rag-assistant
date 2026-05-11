@@ -35,7 +35,8 @@
       "Bash(python -c \"import langchain_text_splitters; print\\('lc_splitters ok'\\)\")",
       "Bash(python -c \"import langchain_openai; print\\('lc_openai ok'\\)\")",
       "Bash(Get-ChildItem -Path \"d:\\\\scientific-rag-assistant\" -Recurse -Force)",
-      "Bash(Select-Object FullName)"
+      "Bash(Select-Object FullName)",
+      "PowerShell(Get-ChildItem d:\\\\scientific-rag-assistant | Where-Object { $_.Name -notin @\\('.venv', '.git'\\) } | Select-Object Name)"
     ]
   }
 }
