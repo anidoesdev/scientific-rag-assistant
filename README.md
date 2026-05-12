@@ -14,7 +14,7 @@ flowchart TD
     API -->|cache hit| FE
     API --> R[Retriever]
 
-    R -->|embed query| OL[Ollama\nnomic-embed-text]
+    R -->|embed query| OL[OpenAI\ntext-embedding-3-small]
     R -->|cosine search top-20| PG[(PostgreSQL + pgvector)]
     R -->|keyword ILIKE top-20| PG
     R -->|RRF fusion + threshold filter| RR[Reranker]
@@ -29,7 +29,7 @@ flowchart TD
 
 **Query pipeline:**
 1. Check Redis cache (SHA-256 key, 1-hour TTL)
-2. Embed query — Ollama `nomic-embed-text`, 768-dim
+2. Embed query — OpenAI `text-embedding-3-small`, 1536-dim
 3. Dense search — cosine similarity, top-20 candidates from pgvector
 4. Keyword search — `ILIKE`, top-20 candidates
 5. RRF fusion — merge both lists by reciprocal rank
@@ -46,7 +46,7 @@ flowchart TD
 |-------|-----------|
 | Frontend | Next.js, React 18, Tailwind CSS, TypeScript, Lora (serif) |
 | Backend API | FastAPI + Uvicorn |
-| Embeddings | Ollama `nomic-embed-text` (local, 768-dim) |
+| Embeddings | OpenAI `text-embedding-3-small` (1536-dim) |
 | LLM | OpenAI `gpt-4o-mini` |
 | Vector DB | PostgreSQL 16 + pgvector |
 | Cache | Redis 7 |
@@ -61,8 +61,7 @@ flowchart TD
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - Python 3.11+
 - Node.js 18+
-- [Ollama](https://ollama.com/) installed and running
-- OpenAI API key
+- OpenAI API key (used for both embeddings and generation)
 
 ---
 
@@ -74,7 +73,7 @@ Two ways to run the project: **Docker Compose** (recommended, one command) or **
 
 ### Option A — Docker Compose (full stack)
 
-> Requires: Docker Desktop, Ollama running on the host, OpenAI API key.
+> Requires: Docker Desktop and an OpenAI API key.
 
 ```bash
 git clone <repo-url>
@@ -84,10 +83,7 @@ cd scientific-rag-assistant
 cp .env.example .env
 # → open .env and set OPENAI_API_KEY=sk-...
 
-# 2. Pull the embedding model on your host
-ollama pull nomic-embed-text
-
-# 3. Build and start all services
+# 2. Build and start all services
 docker compose up --build
 ```
 
@@ -97,12 +93,7 @@ docker compose up --build
 | API | http://localhost:8000 |
 | API docs | http://localhost:8000/docs |
 | PostgreSQL | localhost:5732 |
-| Redis | localhost:6379 |
-
-On **Linux**, Docker containers cannot reach the host via `host.docker.internal`. Edit `docker-compose.yml` and change:
-```yaml
-OLLAMA_HOST: http://172.17.0.1:11434
-```
+| Redis | localhost:6380 |
 
 To ingest pre-existing PDFs from `data/raw/` into a running container:
 
@@ -133,15 +124,9 @@ cp .env.example .env
 docker compose up -d db redis
 ```
 
-Starts PostgreSQL 16 + pgvector on port 5732 and Redis 7 on port 6379.
+Starts PostgreSQL 16 + pgvector on port 5732 and Redis 7 on port 6380.
 
-#### 2. Pull the embedding model
-
-```bash
-ollama pull nomic-embed-text
-```
-
-#### 3. Install Python dependencies
+#### 2. Install Python dependencies
 
 ```bash
 python -m venv .venv
@@ -154,15 +139,16 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### 4. Ingest papers
+#### 3. Ingest papers
 
 Place PDFs in `data/raw/`, then run:
 
 ```bash
-python scripts/ingest_all.py
+python scripts/ingest_all.py            # ingest all new PDFs
+python scripts/ingest_all.py --dry-run  # preview what would be ingested
 ```
 
-This chunks each PDF, generates embeddings via Ollama, and upserts all chunks into PostgreSQL. Already-indexed files are skipped automatically.
+This chunks each PDF, generates embeddings via OpenAI, and upserts all chunks into PostgreSQL. Already-indexed files are skipped automatically.
 
 Alternatively, trigger ingestion via the API after the server is running:
 
@@ -170,7 +156,7 @@ Alternatively, trigger ingestion via the API after the server is running:
 curl -X POST http://localhost:8000/api/ingest
 ```
 
-#### 5. Start the API
+#### 4. Start the API
 
 ```bash
 uvicorn main:app --reload
@@ -179,7 +165,7 @@ uvicorn main:app --reload
 - API: `http://localhost:8000`
 - Interactive docs: `http://localhost:8000/docs`
 
-#### 6. Start the frontend
+#### 5. Start the frontend
 
 ```bash
 cd frontend
@@ -327,7 +313,7 @@ Check liveness and all dependencies.
   "uptime_seconds": 142.3,
   "checks": {
     "database": { "status": "ok" },
-    "ollama":   { "status": "ok" },
+    "openai":   { "status": "ok" },
     "redis":    { "status": "ok" }
   }
 }
@@ -396,7 +382,7 @@ scientific-rag-assistant/
 │   └── services/
 │       ├── cache.py          # Redis answer cache (1-hr TTL)
 │       ├── chunker.py        # PDF → text chunks via PyMuPDF + LangChain
-│       ├── embedder.py       # Ollama embedding client
+│       ├── embedder.py       # OpenAI embedding client (text-embedding-3-small)
 │       ├── evaluator.py      # LLM-based RAG quality evaluator
 │       ├── generator.py      # LLM answer synthesis with citations
 │       ├── pipeline.py       # End-to-end ingestion pipeline (chunk → embed → upsert)
@@ -410,6 +396,7 @@ scientific-rag-assistant/
 ├── eval/
 │   └── retrieval_eval.json   # Evaluation questions + expected papers
 ├── frontend/                 # Next.js app — warm academic UI (Lora serif, sidebar, footnote citations)
+├── notebooks/                # Exploratory Jupyter notebooks
 ├── scripts/
 │   ├── embed_chunks.py       # Standalone batch embedding script
 │   ├── eval_retrieval.py     # Hit@K / MRR metrics
