@@ -3,29 +3,29 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   @apply bg-bg text-text antialiased;
   background-image:
-    radial-gradient(ellipse at 15% 0%, rgba(124, 156, 255, 0.13), transparent 45%),
-    radial-gradient(ellipse at 85% 5%,  rgba(217, 70, 239, 0.07),  transparent 38%),
-    radial-gradient(ellipse at 50% 100%, rgba(124, 156, 255, 0.05), transparent 40%);
+    radial-gradient(ellipse at 15% 0%,  rgba(217, 119, 6, 0.10),  transparent 50%),
+    radial-gradient(ellipse at 85% 5%,  rgba(180, 83,  9, 0.06),  transparent 40%),
+    radial-gradient(ellipse at 50% 100%, rgba(252, 211, 77, 0.08), transparent 45%);
 }
 
 /* ── Thin scrollbar ─────────────────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 4px; }
 ::-webkit-scrollbar-track  { background: transparent; }
-::-webkit-scrollbar-thumb  { @apply rounded-full bg-white/10; }
-::-webkit-scrollbar-thumb:hover { @apply bg-white/20; }
+::-webkit-scrollbar-thumb  { @apply rounded-full bg-stone-300; }
+::-webkit-scrollbar-thumb:hover { @apply bg-stone-400; }
 
 /* ── Glass surface ──────────────────────────────────────────────────────── */
 .glass {
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.045) 0%,
-    rgba(255, 255, 255, 0.012) 100%
+    rgba(255, 255, 255, 0.82) 0%,
+    rgba(255, 255, 255, 0.58) 100%
   );
   backdrop-filter: blur(18px);
 }

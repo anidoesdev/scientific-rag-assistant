@@ -93,10 +93,10 @@ export function UploadModal({ onClose, onDone }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-stone-900/30 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative w-full max-w-md rounded-3xl border border-white/[0.09] bg-panel p-6 shadow-soft">
+      <div className="relative w-full max-w-md rounded-3xl border border-stone-200 bg-white p-6 shadow-soft">
 
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
@@ -118,12 +118,12 @@ export function UploadModal({ onClose, onDone }: Props) {
               onClick={() => fileInputRef.current?.click()}
               className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-10 transition-all duration-150 ${
                 dragging
-                  ? "scale-[1.01] border-accent bg-accent/10"
-                  : "border-white/10 bg-white/[0.02] hover:border-accent/40 hover:bg-accent/[0.04]"
+                  ? "scale-[1.01] border-accent bg-amber-50"
+                  : "border-stone-300 bg-stone-50 hover:border-accent/40 hover:bg-amber-50/60"
               }`}
             >
               <div className={`flex h-11 w-11 items-center justify-center rounded-xl transition-colors ${
-                dragging ? "bg-accent/20 text-accent" : "bg-white/[0.06] text-muted"
+                dragging ? "bg-accent/20 text-accent" : "bg-stone-100 text-muted"
               }`}>
                 <UploadIcon />
               </div>
@@ -135,6 +135,13 @@ export function UploadModal({ onClose, onDone }: Props) {
               </div>
               <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) startUpload(f); }} />
+            </div>
+
+            <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-xs text-muted/70 leading-relaxed">
+              <span className="font-medium text-muted/80">Tip:</span>{" "}
+              Upload <span className="text-accent/80">3–5 papers</span> on the same topic for focused questions,
+              or <span className="text-accent/80">8–12</span> for broader comparisons.
+              Relevance matters more than volume.
             </div>
 
             {error && (
@@ -178,13 +185,13 @@ export function UploadModal({ onClose, onDone }: Props) {
             <div className="flex w-full gap-2 pt-1">
               <button
                 onClick={() => { setState("idle"); setResult(null); setError(null); }}
-                className="flex-1 rounded-xl border border-white/10 py-2.5 text-xs text-muted transition hover:border-white/20 hover:text-text"
+                className="flex-1 rounded-xl border border-stone-200 py-2.5 text-xs text-muted transition hover:border-stone-300 hover:text-text"
               >
                 Upload another
               </button>
               <button
                 onClick={onClose}
-                className="flex-1 rounded-xl bg-accent py-2.5 text-xs font-medium text-bg transition hover:brightness-110"
+                className="flex-1 rounded-xl bg-accent py-2.5 text-xs font-medium text-white transition hover:brightness-110"
               >
                 Start querying ↗
               </button>

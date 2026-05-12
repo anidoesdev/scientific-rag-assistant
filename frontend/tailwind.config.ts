@@ -8,22 +8,26 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg:         "#0b0d12",
-        panel:      "#11141c",
-        panelHover: "#161923",
-        text:       "#e8ecf3",
-        muted:      "#8a95a3",
-        accent:     "#7c9cff",
-        accentSoft: "#2b3761",
-        success:    "#34d399",
-        warn:       "#fbbf24",
+        bg:         "#F7F4EF",
+        panel:      "#EDE8DF",
+        panelHover: "#E4DDD3",
+        text:       "#1C2533",
+        muted:      "#6B7A8D",
+        accent:     "#B45309",
+        accentSoft: "#FEF3C7",
+        success:    "#059669",
+        warn:       "#DC2626",
+      },
+      fontFamily: {
+        sans:  ["var(--font-inter)", "ui-sans-serif", "system-ui"],
+        serif: ["var(--font-lora)", "ui-serif", "Georgia"],
       },
       boxShadow: {
-        soft:  "0 12px 40px -18px rgba(0,0,0,0.65)",
-        glow:  "0 0 24px -6px rgba(124,156,255,0.35)",
+        soft:  "0 12px 40px -18px rgba(0,0,0,0.18)",
+        glow:  "0 0 24px -6px rgba(180,83,9,0.22)",
       },
       borderColor: {
-        DEFAULT: "rgba(255,255,255,0.08)",
+        DEFAULT: "rgba(0,0,0,0.09)",
       },
     }
   },

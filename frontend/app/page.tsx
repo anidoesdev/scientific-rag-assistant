@@ -3,6 +3,7 @@
 import {
   FormEvent,
   KeyboardEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -63,16 +64,6 @@ function prettifyTopic(raw: string): string {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-function extractTopics(citations: Citation[] = []): string[] {
-  const topics = new Set<string>();
-  for (const c of citations) {
-    const t = prettifyTopic(c.file_name || c.paper_id || c.chunk_id);
-    if (t) topics.add(t);
-    if (topics.size >= 4) break;
-  }
-  return Array.from(topics);
-}
-
 /* ── Icons ──────────────────────────────────────────────────────────────── */
 
 const AtomIcon = ({ size = 16 }: { size?: number }) => (
@@ -84,18 +75,20 @@ const AtomIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-const ArrowUpIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <path d="M12 19V5M5 12l7-7 7 7" />
+const BookIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
   </svg>
 );
 
-const WarnIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-    <path d="M12 9v4M12 17h.01" />
+const UploadIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
   </svg>
 );
 
@@ -105,56 +98,140 @@ const BoltIcon = () => (
   </svg>
 );
 
-const BookmarkIcon = () => (
-  <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+const WarnIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+    <path d="M12 9v4M12 17h.01" />
   </svg>
 );
 
-const UploadCloudIcon = () => (
-  <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <polyline points="16 16 12 12 8 16" />
-    <line x1="12" y1="12" x2="12" y2="21" />
-    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+const MenuIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <line x1="3" y1="12" x2="21" y2="12" />
+    <line x1="3" y1="18" x2="21" y2="18" />
   </svg>
 );
 
-/* ── CitationCard ───────────────────────────────────────────────────────── */
+const PenIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+  </svg>
+);
 
-function CitationCard({ c, msgId }: { c: Citation; msgId: string }) {
+/* ── CitationFootnote ────────────────────────────────────────────────────── */
+
+function CitationFootnote({ c, msgId }: { c: Citation; msgId: string }) {
   const [expanded, setExpanded] = useState(false);
+  const label = prettifyTopic(c.file_name || c.paper_id);
 
   return (
-    <div
-      key={`${msgId}-${c.chunk_id}`}
-      className="rounded-xl border border-white/[0.07] bg-black/20 p-3 transition-all duration-200"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/20 text-[10px] font-bold text-accent">
-            {c.source_number}
-          </span>
-          <p className="truncate text-xs font-medium text-muted">
-            {prettifyTopic(c.file_name || c.paper_id)}
-          </p>
-        </div>
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 text-[10px] text-muted/50 transition-colors hover:text-muted"
+    <div key={`${msgId}-${c.chunk_id}`} className="flex gap-3 group">
+      <span className="font-serif shrink-0 text-xs font-bold text-accent mt-0.5">
+        [{c.source_number}]
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-text/80 truncate">{label}</p>
+        <p
+          className={`mt-0.5 text-xs leading-relaxed text-muted/80 transition-all ${
+            expanded ? "" : "line-clamp-2"
+          }`}
         >
-          {expanded ? "less" : "more"}
-        </button>
+          {c.preview}
+        </p>
+        {c.preview.length > 120 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-0.5 text-[10px] text-accent/50 hover:text-accent transition-colors"
+          >
+            {expanded ? "collapse" : "expand"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── UserQuery ──────────────────────────────────────────────────────────── */
+
+function UserQuery({ msg }: { msg: Message }) {
+  return (
+    <div className="msg-enter flex justify-end gap-3 py-2">
+      <div className="max-w-[78%] text-right">
+        <p className="mb-1 text-[10px] uppercase tracking-[0.15em] text-muted/50">Query</p>
+        <p className="font-serif text-[15px] italic leading-relaxed text-text/80">
+          &ldquo;{msg.text}&rdquo;
+        </p>
+      </div>
+      <div className="mt-5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/8 text-[10px] font-bold text-accent">
+        Q
+      </div>
+    </div>
+  );
+}
+
+/* ── AIResponse ─────────────────────────────────────────────────────────── */
+
+function AIResponse({ msg }: { msg: Message }) {
+  const citations = msg.meta?.citations ?? [];
+  const unsupported = msg.meta?.unsupported ?? false;
+  const fromCache = msg.meta?.from_cache ?? false;
+
+  return (
+    <div className="msg-enter space-y-4 py-2">
+      {/* Decorative rule */}
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-stone-200" />
+        <div className="text-accent/40">
+          <AtomIcon size={11} />
+        </div>
+        <div className="h-px flex-1 bg-stone-200" />
       </div>
 
-      <p
-        className={`mt-2 text-sm leading-relaxed text-text/75 transition-all ${
-          expanded ? "" : "line-clamp-2"
-        }`}
-      >
-        {c.preview}
-      </p>
+      {/* Unsupported warning */}
+      {unsupported && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <WarnIcon />
+          <span className="font-serif italic">
+            The indexed papers do not contain sufficient evidence to answer this question.
+          </span>
+        </div>
+      )}
+
+      {/* Answer body — serif, generous line height */}
+      <div className="font-serif text-[15.5px] leading-[1.8] text-text/90 whitespace-pre-wrap">
+        {msg.text}
+      </div>
+
+      {/* Cache badge */}
+      {fromCache && (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted/50">
+          <BoltIcon />
+          <span className="uppercase tracking-widest">Cached response</span>
+        </div>
+      )}
+
+      {/* Footnotes */}
+      {citations.length > 0 && (
+        <div className="border-t border-stone-200 pt-4 space-y-3">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-muted/50">
+            References
+          </p>
+          <div className="space-y-3">
+            {citations.map((c) => (
+              <CitationFootnote
+                key={`${msg.id}-${c.chunk_id}`}
+                c={c}
+                msgId={msg.id}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -165,21 +242,19 @@ export default function Page() {
   const [question, setQuestion] = useState("");
   const [k, setK] = useState(5);
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages]   = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const [paperCount, setPaperCount] = useState<number | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
-  const [showPapersPanel, setShowPapersPanel] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const bottomRef   = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isInitial = messages.length === 0 && !loading;
+  const sessionPapers = papers.filter((p) => p.is_session_upload);
+  const indexedPapers = papers.filter((p) => !p.is_session_upload);
 
-  const sessionPapers  = papers.filter((p) => p.is_session_upload);
-  const indexedPapers  = papers.filter((p) => !p.is_session_upload);
-
-  /* On mount: clear previous session's uploads, then fetch paper list */
   useEffect(() => {
     async function init() {
       try {
@@ -207,12 +282,10 @@ export default function Page() {
     [question, loading]
   );
 
-  /* Auto-scroll to bottom on new messages */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  /* Auto-resize textarea */
   function autoResize() {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -224,17 +297,13 @@ export default function Page() {
     e?.preventDefault();
     if (!canSend) return;
 
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      text: question.trim(),
-    };
-
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: question.trim() };
     setMessages((prev) => [...prev, userMessage]);
     const q = question.trim();
     setQuestion("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setLoading(true);
+    setSidebarOpen(false);
 
     try {
       const res = await fetch(`${API_BASE}/api/ask`, {
@@ -242,10 +311,8 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: q, k }),
       });
-
       if (!res.ok) throw new Error(`Status ${res.status}`);
       const data = (await res.json()) as AskResponse;
-
       setMessages((prev) => [
         ...prev,
         { id: crypto.randomUUID(), role: "assistant", text: data.answer, meta: data },
@@ -254,11 +321,7 @@ export default function Page() {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [
         ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          text: `Could not reach the backend: ${msg}`,
-        },
+        { id: crypto.randomUUID(), role: "assistant", text: `Could not reach the backend: ${msg}` },
       ]);
     } finally {
       setLoading(false);
@@ -272,36 +335,25 @@ export default function Page() {
     }
   }
 
-  function useSuggestion(s: string) {
+  const useSuggestion = useCallback((s: string) => {
     setQuestion(s);
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      autoResize();
-    }, 0);
-  }
+    setTimeout(() => { textareaRef.current?.focus(); autoResize(); }, 0);
+  }, []);
 
-  /* ── Paper pill component ─────────────────────────────────────────────── */
-  function PaperPill({ p }: { p: Paper }) {
+  /* ── Sidebar paper row ────────────────────────────────────────────────── */
+  function SidebarPaperRow({ p }: { p: Paper }) {
     const label = prettifyTopic(p.file_name || p.paper_id);
     return (
       <button
-        key={p.paper_id}
-        onClick={() => {
-          useSuggestion(`What are the key findings in "${label}"?`);
-          setShowPapersPanel(false);
-        }}
-        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-all hover:border-accent/30 hover:bg-accent/[0.07] hover:text-text ${
-          p.is_session_upload
-            ? "border-accent/25 bg-accent/[0.06] text-accent/80"
-            : "border-white/[0.07] bg-black/20 text-muted"
+        onClick={() => { useSuggestion(`What are the key findings in "${label}"?`); setSidebarOpen(false); }}
+        className={`group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/8 ${
+          p.is_session_upload ? "text-accent/80" : "text-text/70"
         }`}
       >
-        {p.is_session_upload ? <UploadCloudIcon /> : (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-          </svg>
-        )}
-        {label}
+        <span className={`mt-0.5 shrink-0 ${p.is_session_upload ? "text-accent/50" : "text-muted/40"} group-hover:text-accent/60 transition-colors`}>
+          <BookIcon />
+        </span>
+        <span className="text-xs leading-snug">{label}</span>
       </button>
     );
   }
@@ -309,259 +361,246 @@ export default function Page() {
   return (
     <div className="flex h-screen flex-col overflow-hidden">
 
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <header className="flex shrink-0 items-center justify-between border-b border-white/[0.07] px-5 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/15 text-accent">
-            <AtomIcon size={16} />
-          </div>
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight text-text">
-              Scientific RAG Assistant
-            </h1>
-            <p className="text-[11px] text-muted/70">
-              Grounded answers from indexed papers
-            </p>
-          </div>
-        </div>
+      {/* ══ Header — journal masthead ════════════════════════════════════════ */}
+      <header className="shrink-0 border-b border-stone-200 bg-bg">
+        {/* Top amber rule */}
+        <div className="h-0.5 bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
 
-        <div className="flex items-center gap-2">
-          {/* Paper count badge — click to toggle papers panel */}
-          {paperCount !== null && (
+        <div className="flex items-center justify-between px-5 py-3.5">
+          {/* Left: hamburger (mobile) + brand */}
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowPapersPanel((v) => !v)}
-              className={`hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors sm:flex ${
-                showPapersPanel
-                  ? "border-accent/40 bg-accent/10 text-accent"
-                  : "border-white/[0.07] bg-panel text-muted hover:border-accent/25 hover:text-text"
-              }`}
+              onClick={() => setSidebarOpen((v) => !v)}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-stone-100 hover:text-text md:hidden"
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-              </svg>
-              <span>{paperCount} paper{paperCount !== 1 ? "s" : ""}</span>
+              <MenuIcon />
             </button>
-          )}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-accent"><AtomIcon size={16} /></span>
+                <h1 className="font-serif text-base font-bold tracking-tight text-text">
+                  Scientific RAG Assistant
+                </h1>
+              </div>
+              <p className="pl-6 text-[11px] italic text-muted/60">
+                Grounded answers from indexed research
+              </p>
+            </div>
+          </div>
 
-          {/* Upload button */}
-          <button
-            onClick={() => setShowUpload(true)}
-            className="flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3.5 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20"
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            Upload
-          </button>
-
-          {/* K slider */}
-          <div className="hidden items-center gap-2.5 rounded-full border border-white/[0.07] bg-panel px-3.5 py-1.5 md:flex">
-            <span className="text-[10px] uppercase tracking-wider text-muted/60">Top-K</span>
-            <input
-              type="range" min={1} max={10} value={k}
-              onChange={(e) => setK(Number(e.target.value))}
-              className="h-1 w-20 accent-accent"
-            />
-            <span className="w-3 text-center font-mono text-xs text-accent">{k}</span>
+          {/* Right: controls */}
+          <div className="flex items-center gap-2.5">
+            <div className="hidden items-center gap-2 rounded-full border border-stone-200 bg-panel px-3 py-1.5 text-xs md:flex">
+              <span className="uppercase tracking-widest text-muted/50" style={{ fontSize: "9px" }}>Top-K</span>
+              <input
+                type="range" min={1} max={10} value={k}
+                onChange={(e) => setK(Number(e.target.value))}
+                className="h-1 w-16 accent-accent"
+              />
+              <span className="w-3 text-center font-mono text-accent">{k}</span>
+            </div>
+            <button
+              onClick={() => setShowUpload(true)}
+              className="flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/18"
+            >
+              <UploadIcon />
+              Upload Paper
+            </button>
           </div>
         </div>
       </header>
 
-      {/* ── Papers panel ─────────────────────────────────────────────────── */}
-      {showPapersPanel && papers.length > 0 && (
-        <div className="shrink-0 border-b border-white/[0.07] bg-panel/40 px-5 py-3 space-y-3">
+      {/* ══ Body: sidebar + main ════════════════════════════════════════════ */}
+      <div className="flex flex-1 overflow-hidden">
 
-          {/* Session uploads section */}
-          {sessionPapers.length > 0 && (
-            <div>
-              <p className="mb-2 text-[10px] uppercase tracking-widest text-accent/60">
-                Uploaded this session
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {sessionPapers.map((p) => <PaperPill key={p.paper_id} p={p} />)}
+        {/* ── Sidebar overlay on mobile ─────────────────────────────────── */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-stone-900/20 backdrop-blur-sm md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* ── Sidebar ───────────────────────────────────────────────────── */}
+        <aside
+          className={`
+            fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-stone-200 bg-panel pt-[57px] transition-transform duration-200
+            md:relative md:inset-auto md:z-auto md:flex md:w-60 md:shrink-0 md:translate-x-0 md:pt-0
+            ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          `}
+        >
+          {/* Sidebar header */}
+          <div className="border-b border-stone-200 px-5 py-4">
+            <h2 className="font-serif text-sm font-semibold text-text">Paper Library</h2>
+            <p className="mt-0.5 text-[11px] text-muted/60">
+              {paperCount === null ? "Loading…" : paperCount === 0 ? "No papers indexed" : `${paperCount} paper${paperCount !== 1 ? "s" : ""} indexed`}
+            </p>
+          </div>
+
+          {/* Papers list */}
+          <div className="flex-1 overflow-y-auto px-2 py-3">
+            {sessionPapers.length > 0 && (
+              <div className="mb-4">
+                <p className="px-3 mb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-accent/60">
+                  This Session
+                </p>
+                {sessionPapers.map((p) => <SidebarPaperRow key={p.paper_id} p={p} />)}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Pre-indexed papers section */}
-          {indexedPapers.length > 0 && (
-            <div>
-              <p className="mb-2 text-[10px] uppercase tracking-widest text-muted/50">
-                Indexed papers — click to pre-fill a question
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {indexedPapers.map((p) => <PaperPill key={p.paper_id} p={p} />)}
+            {indexedPapers.length > 0 && (
+              <div>
+                <p className="px-3 mb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-muted/45">
+                  Indexed
+                </p>
+                {indexedPapers.map((p) => <SidebarPaperRow key={p.paper_id} p={p} />)}
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
 
-      {/* ── Chat area ────────────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
-        <div className="mx-auto max-w-2xl space-y-5">
-
-          {/* Welcome / empty state */}
-          {isInitial && (
-            <div className="flex flex-col items-center py-14 text-center">
-              <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent shadow-glow">
-                <AtomIcon size={28} />
+            {papers.length === 0 && (
+              <div className="px-3 py-8 text-center">
+                <p className="font-serif text-xs italic text-muted/50">No papers indexed yet.</p>
+                <p className="mt-1 text-[11px] text-muted/40">Upload a PDF to get started.</p>
               </div>
-              <h2 className="mb-2 text-xl font-semibold text-text">
-                Ask a scientific question
-              </h2>
-              <p className="mb-7 max-w-sm text-sm leading-relaxed text-muted">
-                Every answer is grounded in indexed research papers. All claims
-                are traceable to a source.
-              </p>
-              <div className="grid w-full max-w-lg gap-2 sm:grid-cols-2">
-                {SUGGESTED_QUESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => useSuggestion(s)}
-                    className="rounded-xl border border-white/[0.07] bg-panel/70 px-4 py-3 text-left text-xs text-muted transition-all duration-150 hover:border-accent/25 hover:bg-accent/5 hover:text-text"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Message list */}
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`msg-enter flex gap-3 ${
-                msg.role === "user" ? "flex-row-reverse" : "flex-row"
-              }`}
+          {/* Upload button */}
+          <div className="border-t border-stone-200 p-4">
+            <button
+              onClick={() => { setShowUpload(true); setSidebarOpen(false); }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-accent/30 py-2.5 text-xs font-medium text-accent/80 transition-colors hover:border-accent/50 hover:bg-accent/5 hover:text-accent"
             >
-              {/* Avatar */}
-              <div
-                className={`mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-                  msg.role === "user"
-                    ? "bg-accent/25 text-accent"
-                    : "bg-white/[0.07] text-muted"
-                }`}
-              >
-                {msg.role === "user" ? "U" : "AI"}
-              </div>
+              <UploadIcon />
+              Upload a paper
+            </button>
+          </div>
+        </aside>
 
-              {/* Content */}
-              <div
-                className={`flex max-w-[85%] flex-col gap-2.5 ${
-                  msg.role === "user" ? "items-end" : "items-start"
-                }`}
-              >
-                {/* Bubble */}
-                <div
-                  className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-gradient-to-br from-accent to-indigo-500 text-white shadow-soft"
-                      : msg.meta?.unsupported
-                      ? "border border-warn/20 bg-warn/5 text-text"
-                      : "glass border border-white/[0.07] text-text"
-                  }`}
-                >
-                  {/* Unsupported warning */}
-                  {msg.meta?.unsupported && (
-                    <div className="mb-2 flex items-center gap-1.5 text-[11px] text-warn">
-                      <WarnIcon />
-                      Insufficient evidence in indexed papers
-                    </div>
-                  )}
+        {/* ── Main content ──────────────────────────────────────────────── */}
+        <div className="flex flex-1 flex-col overflow-hidden">
 
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
+          {/* Scrollable content */}
+          <main className="flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-2xl px-6 py-10 space-y-8">
 
-                  {/* Cache badge */}
-                  {msg.meta?.from_cache && (
-                    <div className="mt-2 flex items-center gap-1 text-[10px] text-accent/60">
-                      <BoltIcon />
-                      Cached response
-                    </div>
-                  )}
-                </div>
+              {/* ── Empty / welcome state ─────────────────────────────── */}
+              {isInitial && (
+                <div className="space-y-10">
+                  {/* Masthead block */}
+                  <div className="space-y-3 border-b-2 border-stone-200 pb-8">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-accent/70">
+                      Research Assistant
+                    </p>
+                    <h2 className="font-serif text-4xl font-bold leading-tight text-text">
+                      Ask a scientific<br />question.
+                    </h2>
+                    <p className="max-w-md font-serif text-[15px] leading-relaxed text-muted/80 italic">
+                      Every answer is grounded in indexed research papers.
+                      All claims are traceable to a specific source.
+                    </p>
+                  </div>
 
-                {/* Topics + Citations */}
-                {(msg.meta?.citations?.length ?? 0) > 0 && (
-                  <div className="w-full space-y-2.5">
-                    {/* Topic pills */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {extractTopics(msg.meta!.citations).map((topic) => (
-                        <span
-                          key={`${msg.id}-${topic}`}
-                          className="flex items-center gap-1 rounded-full border border-accent/20 bg-accent/[0.08] px-2.5 py-1 text-[11px] text-accent/85"
+                  {/* Suggested queries */}
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted/50">
+                      Try asking
+                    </p>
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      {SUGGESTED_QUESTIONS.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => useSuggestion(s)}
+                          className="group rounded-xl border border-stone-200 bg-white px-4 py-3.5 text-left transition-all hover:border-accent/30 hover:bg-amber-50/60 hover:shadow-sm"
                         >
-                          <BookmarkIcon />
-                          {topic}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Citation cards */}
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] uppercase tracking-widest text-muted/50">
-                        Sources
-                      </p>
-                      {msg.meta!.citations.map((c) => (
-                        <CitationCard
-                          key={`${msg.id}-${c.chunk_id}`}
-                          c={c}
-                          msgId={msg.id}
-                        />
+                          <span className="font-serif text-sm italic text-text/70 group-hover:text-text/90 transition-colors leading-snug">
+                            &ldquo;{s}&rdquo;
+                          </span>
+                        </button>
                       ))}
                     </div>
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
 
-          {/* Loading indicator */}
-          {loading && (
-            <div className="msg-enter flex gap-3">
-              <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[11px] font-semibold text-muted">
-                AI
-              </div>
-              <div className="glass rounded-2xl border border-white/[0.07] px-4 py-3.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="dot-bounce h-2 w-2 rounded-full bg-muted/50" style={{ animationDelay: "0ms" }} />
-                  <span className="dot-bounce h-2 w-2 rounded-full bg-muted/50" style={{ animationDelay: "160ms" }} />
-                  <span className="dot-bounce h-2 w-2 rounded-full bg-muted/50" style={{ animationDelay: "320ms" }} />
+                  {/* Low-paper notice */}
+                  {paperCount !== null && paperCount < 3 && (
+                    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" className="mt-0.5 shrink-0 text-accent/70">
+                        <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+                      </svg>
+                      <p className="font-serif text-sm leading-relaxed text-amber-900/80">
+                        <span className="font-semibold not-italic">
+                          {paperCount === 0 ? "No papers indexed yet." : `Only ${paperCount} paper${paperCount !== 1 ? "s" : ""} indexed.`}
+                        </span>{" "}
+                        Upload at least <strong>3–5 papers</strong> for reliable answers, or <strong>8–12</strong> for broader comparisons.
+                      </p>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
+
+              {/* ── Message thread ────────────────────────────────────── */}
+              {messages.map((msg) =>
+                msg.role === "user"
+                  ? <UserQuery key={msg.id} msg={msg} />
+                  : <AIResponse key={msg.id} msg={msg} />
+              )}
+
+              {/* ── Loading ───────────────────────────────────────────── */}
+              {loading && (
+                <div className="msg-enter space-y-4 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-stone-200" />
+                    <div className="text-accent/40"><AtomIcon size={11} /></div>
+                    <div className="h-px flex-1 bg-stone-200" />
+                  </div>
+                  <div className="flex items-center gap-2 pl-1">
+                    <span className="dot-bounce h-1.5 w-1.5 rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
+                    <span className="dot-bounce h-1.5 w-1.5 rounded-full bg-muted/40" style={{ animationDelay: "160ms" }} />
+                    <span className="dot-bounce h-1.5 w-1.5 rounded-full bg-muted/40" style={{ animationDelay: "320ms" }} />
+                    <span className="font-serif text-xs italic text-muted/50 ml-1">Searching papers…</span>
+                  </div>
+                </div>
+              )}
+
+              <div ref={bottomRef} />
             </div>
-          )}
+          </main>
 
-          <div ref={bottomRef} />
-        </div>
-      </main>
-
-      {/* ── Input bar ────────────────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-white/[0.06] bg-bg/80 px-4 py-4 backdrop-blur-sm md:px-8">
-        <form onSubmit={onSubmit} className="mx-auto max-w-2xl">
-          <div className="glass flex items-end gap-3 rounded-2xl border border-white/[0.09] px-4 py-3 transition-colors duration-150 focus-within:border-accent/35">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={question}
-              onChange={(e) => { setQuestion(e.target.value); autoResize(); }}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask a scientific question…"
-              className="max-h-40 flex-1 resize-none bg-transparent text-sm text-text outline-none placeholder:text-muted/40"
-            />
-            <button
-              type="submit"
-              disabled={!canSend}
-              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent text-bg transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-25"
-            >
-              <ArrowUpIcon />
-            </button>
+          {/* ── Compose bar ─────────────────────────────────────────────── */}
+          <div className="shrink-0 border-t border-stone-200 bg-bg px-6 py-4">
+            <form onSubmit={onSubmit} className="mx-auto max-w-2xl">
+              <div className="flex items-end gap-3 rounded-2xl border border-stone-200 bg-white px-5 py-3.5 shadow-sm transition-all focus-within:border-accent/40 focus-within:shadow-glow">
+                <span className="mb-1 shrink-0 text-muted/35">
+                  <PenIcon />
+                </span>
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={question}
+                  onChange={(e) => { setQuestion(e.target.value); autoResize(); }}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask a scientific question…"
+                  className="max-h-40 flex-1 resize-none bg-transparent font-serif text-[14.5px] italic leading-relaxed text-text outline-none placeholder:not-italic placeholder:font-sans placeholder:text-sm placeholder:text-muted/40"
+                />
+                <button
+                  type="submit"
+                  disabled={!canSend}
+                  className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-25"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+              </div>
+              <p className="mt-2 text-center text-[10px] text-muted/35">
+                Ctrl + Enter to send · answers grounded in indexed papers only
+              </p>
+            </form>
           </div>
-          <p className="mt-2 text-center text-[10px] text-muted/35">
-            Ctrl + Enter to send · Answers are grounded in indexed papers only
-          </p>
-        </form>
+
+        </div>
       </div>
 
       {/* ── Upload modal ─────────────────────────────────────────────────── */}
