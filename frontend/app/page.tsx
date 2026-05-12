@@ -35,6 +35,12 @@ type Message = {
   meta?: AskResponse;
 };
 
+type Paper = {
+  paper_id: string;
+  file_name: string;
+  is_session_upload: boolean;
+};
+
 /* ── Constants ──────────────────────────────────────────────────────────── */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -106,6 +112,15 @@ const BookmarkIcon = () => (
   </svg>
 );
 
+const UploadCloudIcon = () => (
+  <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <polyline points="16 16 12 12 8 16" />
+    <line x1="12" y1="12" x2="12" y2="21" />
+    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+  </svg>
+);
+
 /* ── CitationCard ───────────────────────────────────────────────────────── */
 
 function CitationCard({ c, msgId }: { c: Citation; msgId: string }) {
@@ -153,24 +168,39 @@ export default function Page() {
   const [messages, setMessages]   = useState<Message[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const [paperCount, setPaperCount] = useState<number | null>(null);
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [showPapersPanel, setShowPapersPanel] = useState(false);
 
   const bottomRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isInitial = messages.length === 0 && !loading;
 
-  /* Fetch paper count on mount and after successful upload */
+  const sessionPapers  = papers.filter((p) => p.is_session_upload);
+  const indexedPapers  = papers.filter((p) => !p.is_session_upload);
+
+  /* On mount: clear previous session's uploads, then fetch paper list */
+  useEffect(() => {
+    async function init() {
+      try {
+        await fetch(`${API_BASE}/api/uploads/cleanup`, { method: "DELETE" });
+      } catch { /* backend may not be running yet */ }
+      refreshPaperCount();
+    }
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function refreshPaperCount() {
     try {
       const res = await fetch(`${API_BASE}/api/papers`);
       if (res.ok) {
-        const data = await res.json();
+        const data: Paper[] = await res.json();
+        setPapers(data);
         setPaperCount(data.length);
       }
     } catch { /* backend may not be running yet */ }
   }
-
-  useEffect(() => { refreshPaperCount(); }, []);
 
   const canSend = useMemo(
     () => question.trim().length > 0 && !loading,
@@ -250,6 +280,32 @@ export default function Page() {
     }, 0);
   }
 
+  /* ── Paper pill component ─────────────────────────────────────────────── */
+  function PaperPill({ p }: { p: Paper }) {
+    const label = prettifyTopic(p.file_name || p.paper_id);
+    return (
+      <button
+        key={p.paper_id}
+        onClick={() => {
+          useSuggestion(`What are the key findings in "${label}"?`);
+          setShowPapersPanel(false);
+        }}
+        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-all hover:border-accent/30 hover:bg-accent/[0.07] hover:text-text ${
+          p.is_session_upload
+            ? "border-accent/25 bg-accent/[0.06] text-accent/80"
+            : "border-white/[0.07] bg-black/20 text-muted"
+        }`}
+      >
+        {p.is_session_upload ? <UploadCloudIcon /> : (
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+        )}
+        {label}
+      </button>
+    );
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
 
@@ -270,14 +326,21 @@ export default function Page() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Paper count badge */}
+          {/* Paper count badge — click to toggle papers panel */}
           {paperCount !== null && (
-            <div className="hidden items-center gap-1.5 rounded-full border border-white/[0.07] bg-panel px-3 py-1.5 text-xs text-muted sm:flex">
+            <button
+              onClick={() => setShowPapersPanel((v) => !v)}
+              className={`hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors sm:flex ${
+                showPapersPanel
+                  ? "border-accent/40 bg-accent/10 text-accent"
+                  : "border-white/[0.07] bg-panel text-muted hover:border-accent/25 hover:text-text"
+              }`}
+            >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
               </svg>
               <span>{paperCount} paper{paperCount !== 1 ? "s" : ""}</span>
-            </div>
+            </button>
           )}
 
           {/* Upload button */}
@@ -303,6 +366,36 @@ export default function Page() {
           </div>
         </div>
       </header>
+
+      {/* ── Papers panel ─────────────────────────────────────────────────── */}
+      {showPapersPanel && papers.length > 0 && (
+        <div className="shrink-0 border-b border-white/[0.07] bg-panel/40 px-5 py-3 space-y-3">
+
+          {/* Session uploads section */}
+          {sessionPapers.length > 0 && (
+            <div>
+              <p className="mb-2 text-[10px] uppercase tracking-widest text-accent/60">
+                Uploaded this session
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {sessionPapers.map((p) => <PaperPill key={p.paper_id} p={p} />)}
+              </div>
+            </div>
+          )}
+
+          {/* Pre-indexed papers section */}
+          {indexedPapers.length > 0 && (
+            <div>
+              <p className="mb-2 text-[10px] uppercase tracking-widest text-muted/50">
+                Indexed papers — click to pre-fill a question
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {indexedPapers.map((p) => <PaperPill key={p.paper_id} p={p} />)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Chat area ────────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8">

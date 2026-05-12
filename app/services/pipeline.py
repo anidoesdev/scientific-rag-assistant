@@ -8,6 +8,7 @@ from app.services.embedder import embed_texts
 
 DATA_DIR = Path("./data")
 RAW_DIR = DATA_DIR / "raw"
+UPLOADS_DIR = DATA_DIR / "uploads"
 
 
 def _already_indexed_sources(session: Session) -> set:

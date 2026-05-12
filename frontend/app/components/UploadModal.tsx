@@ -102,7 +102,7 @@ export function UploadModal({ onClose, onDone }: Props) {
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-text">Upload a Paper</h2>
-            <p className="text-xs text-muted/60">PDF only · max 50 MB · saved to data/raw/</p>
+            <p className="text-xs text-muted/60">PDF only · max 50 MB · cleared on session restart</p>
           </div>
           <button onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-muted/50 transition-colors hover:text-text">

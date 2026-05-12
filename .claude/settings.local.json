@@ -39,7 +39,8 @@
       "PowerShell(Get-ChildItem d:\\\\scientific-rag-assistant | Where-Object { $_.Name -notin @\\('.venv', '.git'\\) } | Select-Object Name)",
       "PowerShell(docker exec rag_pg psql -U raguser -d ragdb -c \"\\\\d chunks\")",
       "PowerShell(docker exec rag_pg psql -U raguser -d ragdb -c \"DROP INDEX IF EXISTS idx_chunks_embedding; TRUNCATE TABLE chunks; ALTER TABLE chunks ALTER COLUMN embedding TYPE VECTOR\\(1536\\); CREATE INDEX idx_chunks_embedding ON chunks USING ivfflat \\(embedding vector_cosine_ops\\) WITH \\(lists = 100\\);\")",
-      "PowerShell(docker exec rag_redis redis-cli FLUSHDB)"
+      "PowerShell(docker exec rag_redis redis-cli FLUSHDB)",
+      "Bash(xargs grep -l \"session\\\\|Session\")"
     ]
   }
 }

@@ -1,6 +1,7 @@
 #domain:AI/ML + LLM system papers from arXiv
 #question answering and synthesis over papers
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.ask import router as ask_router
@@ -10,7 +11,38 @@ from app.api.upload import router as upload_router
 
 START_TIME = time.time()
 
-app = FastAPI(title="Scientific Rag Assistant")
+
+def _cleanup_uploads_on_startup() -> None:
+    """Remove all session-uploaded PDFs and their DB chunks on server start."""
+    try:
+        from app.services.pipeline import UPLOADS_DIR
+        from app.db.session import SessionLocal
+        from sqlalchemy import text as sql_text
+
+        if UPLOADS_DIR.exists():
+            for f in UPLOADS_DIR.glob("*.pdf"):
+                f.unlink(missing_ok=True)
+
+        base = str(UPLOADS_DIR)
+        win_pat = base.replace("/", "\\") + "%"
+        unix_pat = base.replace("\\", "/") + "%"
+        with SessionLocal() as session:
+            session.execute(
+                sql_text("DELETE FROM chunks WHERE source LIKE :win OR source LIKE :unix"),
+                {"win": win_pat, "unix": unix_pat},
+            )
+            session.commit()
+    except Exception:
+        pass  # DB may not be ready on very first boot; uploads will be cleaned on next start
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _cleanup_uploads_on_startup()
+    yield
+
+
+app = FastAPI(title="Scientific Rag Assistant", lifespan=lifespan)
 app.state.start_time = START_TIME
 
 app.add_middleware(
