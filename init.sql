@@ -1,3 +1,6 @@
+DROP INDEX IF EXISTS idx_chunks_embedding;
+TRUNCATE TABLE chunks;
+
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS chunks (

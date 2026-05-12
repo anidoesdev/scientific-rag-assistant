@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimension: int = 1536
     openai_api_key: str
-    generation_model: str = "gpt-5.4-mini"
-    reranker_model: str = "gpt-5.4-mini"
+    generation_model: str = "gpt-4o-mini"
+    reranker_model: str = "gpt-4o-mini"
     retrieval_candidate_k: int = 20
     retrieval_final_k: int = 5
     retrieval_similarity_threshold: float = 0.3
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     reranker_min_score: int = 4
 
     redis_host: str = "localhost"
-    redis_port: int = 6379
+    redis_port: int = 6380
     cache_ttl_seconds: int = 3600
 
     model_config = SettingsConfigDict(

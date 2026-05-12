@@ -35,12 +35,14 @@ async def ask(req: AskRequest):
     chunks = retrieve_chunks(req.question, k=max(req.k, settings.retrieval_final_k))
     
     if not chunks:
+        print("chunks are not there!!")
         result = build_no_answer_response(request_id)
         cache.set(req.question, result)
         return result
 
     reranked = rerank_chunks(req.question, chunks, top_n=req.k)
-    if reranked and max(int(c.get("rerank_score", 0)) for c in reranked) < settings.reranker_min_score:
+    scores_present = any("rerank_score" in c for c in reranked)
+    if reranked and scores_present and max(int(c.get("rerank_score", 0)) for c in reranked) < settings.reranker_min_score:
         result = build_no_answer_response(request_id)
         cache.set(req.question, result)
         return result
