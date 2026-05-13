@@ -1,4 +1,5 @@
 import shutil
+from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import text as sql_text
@@ -63,6 +64,35 @@ async def upload_paper(file: UploadFile = File(...)):
             "result": result,
         },
     )
+
+
+@router.delete("/papers/{paper_id}")
+async def delete_paper(paper_id: str):
+    with SessionLocal() as session:
+        row = session.execute(
+            sql_text("SELECT source FROM chunks WHERE paper_id = :pid LIMIT 1"),
+            {"pid": paper_id},
+        ).first()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Paper '{paper_id}' not found.")
+
+        source_path = row[0]
+
+        session.execute(
+            sql_text("DELETE FROM chunks WHERE paper_id = :pid"),
+            {"pid": paper_id},
+        )
+        session.commit()
+
+    deleted_file = None
+    if source_path:
+        path = Path(source_path)
+        if path.exists():
+            path.unlink(missing_ok=True)
+            deleted_file = path.name
+
+    return {"paper_id": paper_id, "deleted_file": deleted_file}
 
 
 @router.delete("/uploads/cleanup")

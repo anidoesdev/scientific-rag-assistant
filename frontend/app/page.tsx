@@ -352,18 +352,44 @@ export default function Page() {
   /* ── Sidebar paper row ────────────────────────────────────────────────── */
   function SidebarPaperRow({ p }: { p: Paper }) {
     const label = prettifyTopic(p.file_name || p.paper_id);
+    const [deleting, setDeleting] = useState(false);
+
+    async function handleDelete(e: React.MouseEvent) {
+      e.stopPropagation();
+      if (!window.confirm(`Remove "${label}" from the library?`)) return;
+      setDeleting(true);
+      try {
+        await fetch(`${API_BASE}/api/papers/${p.paper_id}`, { method: "DELETE" });
+        await refreshPaperCount();
+      } finally {
+        setDeleting(false);
+      }
+    }
+
     return (
-      <button
-        onClick={() => { useSuggestion(`What are the key findings in "${label}"?`); setSidebarOpen(false); }}
-        className={`group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/8 ${
-          p.is_session_upload ? "text-accent/80" : "text-text/70"
-        }`}
-      >
-        <span className={`mt-0.5 shrink-0 ${p.is_session_upload ? "text-accent/50" : "text-muted/40"} group-hover:text-accent/60 transition-colors`}>
-          <BookIcon />
-        </span>
-        <span className="text-xs leading-snug">{label}</span>
-      </button>
+      <div className={`group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/8 ${
+        p.is_session_upload ? "text-accent/80" : "text-text/70"
+      }`}>
+        <button
+          onClick={() => { useSuggestion(`What are the key findings in "${label}"?`); setSidebarOpen(false); }}
+          className="flex flex-1 items-start gap-2.5 text-left min-w-0"
+        >
+          <span className={`mt-0.5 shrink-0 ${p.is_session_upload ? "text-accent/50" : "text-muted/40"} group-hover:text-accent/60 transition-colors`}>
+            <BookIcon />
+          </span>
+          <span className="text-xs leading-snug">{label}</span>
+        </button>
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          title="Remove paper"
+          className="shrink-0 mt-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-muted/40 hover:text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M18 6L6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
     );
   }
 
