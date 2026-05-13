@@ -46,6 +46,15 @@ type Paper = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+
+function genId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
 const SUGGESTED_QUESTIONS = [
   "What are sparse autoencoders used for in mechanistic interpretability?",
   "How do transformer attention mechanisms handle long-range dependencies?",
@@ -297,7 +306,7 @@ export default function Page() {
     e?.preventDefault();
     if (!canSend) return;
 
-    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: question.trim() };
+    const userMessage: Message = { id: genId(), role: "user", text: question.trim() };
     setMessages((prev) => [...prev, userMessage]);
     const q = question.trim();
     setQuestion("");
@@ -315,13 +324,13 @@ export default function Page() {
       const data = (await res.json()) as AskResponse;
       setMessages((prev) => [
         ...prev,
-        { id: crypto.randomUUID(), role: "assistant", text: data.answer, meta: data },
+        { id: genId(), role: "assistant", text: data.answer, meta: data },
       ]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => [
         ...prev,
-        { id: crypto.randomUUID(), role: "assistant", text: `Could not reach the backend: ${msg}` },
+        { id: genId(), role: "assistant", text: `Could not reach the backend: ${msg}` },
       ]);
     } finally {
       setLoading(false);
