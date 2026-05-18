@@ -32,7 +32,7 @@ services:
       POSTGRES_PASSWORD: ragpassword
       POSTGRES_DB:       ragdb
     ports:
-      - "5732:5432"           # host:container – keeps the default dev port
+      - "127.0.0.1:5732:5432"  # localhost only – not exposed publicly
     volumes:
       - rag_pg_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # runs once on first boot
@@ -48,7 +48,7 @@ services:
     container_name: rag_redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"  # localhost only
     volumes:
       - rag_redis_data:/data
     command: redis-server --appendonly yes
@@ -70,8 +70,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    # port 8000 not exposed publicly — nginx proxies api.yourdomain.com → api:8000
     volumes:
       # Uploaded / pre-existing PDFs persist across container restarts
       - rag_data:/app/data
@@ -110,8 +109,22 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # port 3000 not exposed publicly — nginx proxies yourdomain.com → frontend:3000
+
+  # ── Nginx reverse proxy + SSL termination ─────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: rag_nginx
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+      - frontend
 
 # ── Volumes ────────────────────────────────────────────────────────────────
 volumes:

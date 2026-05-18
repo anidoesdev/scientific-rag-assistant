@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"d:\\\\scientific-rag-assistant\" -Force)",
+      "Bash(Select-Object -Property Name, PSIsContainer)"
+    ]
+  }
+}
