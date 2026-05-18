@@ -288,7 +288,7 @@ export default function Page() {
 
   async function refreshPaperCount() {
     try {
-      const res = await fetch(`${API_BASE}/api/papers`);
+      const res = await fetch(`${API_BASE}/api/papers`, { headers: authHeaders });
       if (res.ok) {
         const data: Paper[] = await res.json();
         setPapers(data);

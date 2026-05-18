@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import text as sql_text
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, get_optional_user
 from app.db.session import SessionLocal
 from app.services.pipeline import UPLOADS_DIR, ingest_single
 
@@ -18,11 +18,20 @@ def _uploads_source_patterns() -> tuple[str, str]:
 
 
 @router.get("/papers")
-async def list_papers():
+async def list_papers(user: dict | None = Depends(get_optional_user)):
     with SessionLocal() as session:
         rows = session.execute(
             sql_text("SELECT DISTINCT paper_id, file_name, source FROM chunks ORDER BY paper_id")
         ).all()
+
+        hidden: set[str] = set()
+        if user:
+            hidden_rows = session.execute(
+                sql_text("SELECT paper_id FROM user_hidden_papers WHERE user_id = :uid"),
+                {"uid": user["id"]},
+            ).all()
+            hidden = {r[0] for r in hidden_rows}
+
     win_prefix, unix_prefix = _uploads_source_patterns()
     return [
         {
@@ -32,6 +41,7 @@ async def list_papers():
                 or (r[2] or "").startswith(unix_prefix[:-1]),
         }
         for r in rows
+        if r[0] not in hidden
     ]
 
 
@@ -68,7 +78,7 @@ async def upload_paper(file: UploadFile = File(...), _user: dict = Depends(get_c
 
 
 @router.delete("/papers/{paper_id}")
-async def delete_paper(paper_id: str, _user: dict = Depends(get_current_user)):
+async def delete_paper(paper_id: str, user: dict = Depends(get_current_user)):
     with SessionLocal() as session:
         row = session.execute(
             sql_text("SELECT source FROM chunks WHERE paper_id = :pid LIMIT 1"),
@@ -79,12 +89,27 @@ async def delete_paper(paper_id: str, _user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail=f"Paper '{paper_id}' not found.")
 
         source_path = row[0]
+        win_prefix, unix_prefix = _uploads_source_patterns()
+        is_upload = (source_path or "").startswith(win_prefix[:-1]) or \
+                    (source_path or "").startswith(unix_prefix[:-1])
 
-        session.execute(
-            sql_text("DELETE FROM chunks WHERE paper_id = :pid"),
-            {"pid": paper_id},
-        )
-        session.commit()
+        if is_upload:
+            session.execute(
+                sql_text("DELETE FROM chunks WHERE paper_id = :pid"),
+                {"pid": paper_id},
+            )
+            session.commit()
+
+        else:
+            session.execute(
+                sql_text(
+                    "INSERT INTO user_hidden_papers (user_id, paper_id) "
+                    "VALUES (:uid, :pid) ON CONFLICT DO NOTHING"
+                ),
+                {"uid": user["id"], "pid": paper_id},
+            )
+            session.commit()
+            return {"paper_id": paper_id, "hidden": True}
 
     deleted_file = None
     if source_path:

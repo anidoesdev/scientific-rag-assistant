@@ -7,6 +7,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_hidden_papers (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    paper_id TEXT    NOT NULL,
+    PRIMARY KEY (user_id, paper_id)
+);
+
 DROP INDEX IF EXISTS idx_chunks_embedding;
 TRUNCATE TABLE chunks;
 
