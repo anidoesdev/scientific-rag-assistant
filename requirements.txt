@@ -123,6 +123,8 @@ zipp==3.23.1
 zstandard==0.25.0
 redis==5.2.1
 python-multipart==0.0.20
+google-auth
+python-jose[cryptography]
 dotenv==0.9.9
 env==0.1.0
 iniconfig==2.3.0

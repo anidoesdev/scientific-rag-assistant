@@ -1,9 +1,10 @@
 import shutil
 from pathlib import Path
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import text as sql_text
 
+from app.auth.dependencies import get_current_user
 from app.db.session import SessionLocal
 from app.services.pipeline import UPLOADS_DIR, ingest_single
 
@@ -35,7 +36,7 @@ async def list_papers():
 
 
 @router.post("/upload")
-async def upload_paper(file: UploadFile = File(...)):
+async def upload_paper(file: UploadFile = File(...), _user: dict = Depends(get_current_user)):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -67,7 +68,7 @@ async def upload_paper(file: UploadFile = File(...)):
 
 
 @router.delete("/papers/{paper_id}")
-async def delete_paper(paper_id: str):
+async def delete_paper(paper_id: str, _user: dict = Depends(get_current_user)):
     with SessionLocal() as session:
         row = session.execute(
             sql_text("SELECT source FROM chunks WHERE paper_id = :pid LIMIT 1"),
@@ -96,7 +97,7 @@ async def delete_paper(paper_id: str):
 
 
 @router.delete("/uploads/cleanup")
-async def cleanup_session_uploads():
+async def cleanup_session_uploads(_user: dict = Depends(get_current_user)):
     """Delete all session-uploaded PDFs and their indexed chunks."""
     deleted_files: list[str] = []
 

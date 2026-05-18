@@ -8,6 +8,7 @@ __pycache__/
 # Secrets
 .env
 *.env
+frontend/.env.local
 
 # Node
 node_modules

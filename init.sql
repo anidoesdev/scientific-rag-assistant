@@ -1,3 +1,12 @@
+CREATE TABLE IF NOT EXISTS users (
+    id          SERIAL PRIMARY KEY,
+    google_sub  TEXT UNIQUE NOT NULL,
+    email       TEXT UNIQUE NOT NULL,
+    name        TEXT,
+    picture     TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 DROP INDEX IF EXISTS idx_chunks_embedding;
 TRUNCATE TABLE chunks;
 

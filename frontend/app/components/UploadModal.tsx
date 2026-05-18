@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { useAuth } from "../contexts/AuthContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -42,6 +43,7 @@ interface Props {
 }
 
 export function UploadModal({ onClose, onDone }: Props) {
+  const { token } = useAuth();
   const [state, setState]   = useState<State>("idle");
   const [dragging, setDragging] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -65,7 +67,11 @@ export function UploadModal({ onClose, onDone }: Props) {
     form.append("file", file);
 
     try {
-      const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: form });
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
       const body = await res.json();
       if (!res.ok) throw new Error(body.detail ?? `Upload failed (${res.status})`);
       setResult(body as UploadResult);

@@ -89,6 +89,10 @@ services:
 
       # ── OpenAI ──
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # ── Auth ──
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
     env_file:
       - .env          # fallback / additional secrets; DB/Redis above take precedence
 
@@ -100,7 +104,8 @@ services:
       args:
         # Baked into the JS bundle – must point to where the BROWSER reaches the API.
         # For local docker-compose this is always localhost:8000.
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
     container_name: rag_frontend
     restart: unless-stopped
     depends_on:

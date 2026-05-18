@@ -9,7 +9,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import { UploadModal } from "./components/UploadModal";
+import { useAuth } from "./contexts/AuthContext";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -248,6 +250,9 @@ function AIResponse({ msg }: { msg: Message }) {
 /* ── Page ───────────────────────────────────────────────────────────────── */
 
 export default function Page() {
+  const { user, token, logout } = useAuth();
+  const router = useRouter();
+
   const [question, setQuestion] = useState("");
   const [k, setK] = useState(5);
   const [loading, setLoading] = useState(false);
@@ -264,16 +269,22 @@ export default function Page() {
   const sessionPapers = papers.filter((p) => p.is_session_upload);
   const indexedPapers = papers.filter((p) => !p.is_session_upload);
 
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  // Load papers for everyone on mount
   useEffect(() => {
-    async function init() {
-      try {
-        await fetch(`${API_BASE}/api/uploads/cleanup`, { method: "DELETE" });
-      } catch { /* backend may not be running yet */ }
-      refreshPaperCount();
-    }
-    init();
+    refreshPaperCount();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When a user signs in, clean up their session uploads then refresh
+  useEffect(() => {
+    if (!user) return;
+    fetch(`${API_BASE}/api/uploads/cleanup`, { method: "DELETE", headers: authHeaders })
+      .catch(() => {})
+      .finally(() => refreshPaperCount());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   async function refreshPaperCount() {
     try {
@@ -359,7 +370,7 @@ export default function Page() {
       if (!window.confirm(`Remove "${label}" from the library?`)) return;
       setDeleting(true);
       try {
-        await fetch(`${API_BASE}/api/papers/${p.paper_id}`, { method: "DELETE" });
+        await fetch(`${API_BASE}/api/papers/${p.paper_id}`, { method: "DELETE", headers: authHeaders });
         await refreshPaperCount();
       } finally {
         setDeleting(false);
@@ -379,7 +390,7 @@ export default function Page() {
           </span>
           <span className="text-xs leading-snug">{label}</span>
         </button>
-        <button
+        {user && <button
           onClick={handleDelete}
           disabled={deleting}
           title="Remove paper"
@@ -388,7 +399,7 @@ export default function Page() {
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
-        </button>
+        </button>}
       </div>
     );
   }
@@ -435,12 +446,39 @@ export default function Page() {
               <span className="w-3 text-center font-mono text-accent">{k}</span>
             </div>
             <button
-              onClick={() => setShowUpload(true)}
+              onClick={() => { if (!user) { router.push("/login"); return; } setShowUpload(true); }}
               className="flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/18"
             >
               <UploadIcon />
               Upload Paper
             </button>
+            {user ? (
+              user.picture ? (
+                <button
+                  onClick={logout}
+                  title={`Sign out (${user.email})`}
+                  className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-stone-200 transition-opacity hover:opacity-75"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={user.picture} alt={user.name} className="h-full w-full object-cover" />
+                </button>
+              ) : (
+                <button
+                  onClick={logout}
+                  title={`Sign out (${user.email})`}
+                  className="rounded-full border border-stone-200 px-3 py-1.5 text-xs text-muted/60 transition-colors hover:text-text"
+                >
+                  Sign out
+                </button>
+              )
+            ) : (
+              <button
+                onClick={() => router.push("/login")}
+                className="rounded-full border border-stone-200 px-3 py-1.5 text-xs text-muted/60 transition-colors hover:border-accent/30 hover:text-accent"
+              >
+                Sign in
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -503,7 +541,7 @@ export default function Page() {
           {/* Upload button */}
           <div className="border-t border-stone-200 p-4">
             <button
-              onClick={() => { setShowUpload(true); setSidebarOpen(false); }}
+              onClick={() => { if (!user) { setSidebarOpen(false); router.push("/login"); return; } setShowUpload(true); setSidebarOpen(false); }}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-accent/30 py-2.5 text-xs font-medium text-accent/80 transition-colors hover:border-accent/50 hover:bg-accent/5 hover:text-accent"
             >
               <UploadIcon />

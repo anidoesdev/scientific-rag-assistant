@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     redis_port: int = 6380
     cache_ttl_seconds: int = 3600
 
+    google_client_id: str = ""
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_expire_hours: int = 168  # 1 week
+
+    # Comma-separated list of allowed CORS origins, e.g.:
+    # ALLOWED_ORIGINS=http://localhost:3000,http://10.0.0.5:3000
+    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
