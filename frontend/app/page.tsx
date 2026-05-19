@@ -1,740 +1,749 @@
 "use client";
 
-import {
-  FormEvent,
-  KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { useRouter } from "next/navigation";
-import { UploadModal } from "./components/UploadModal";
-import { useAuth } from "./contexts/AuthContext";
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 
-/* ── Types ──────────────────────────────────────────────────────────────── */
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-type Citation = {
-  source_number: number;
-  chunk_id: string;
-  paper_id: string;
-  file_name?: string | null;
-  preview: string;
+type Stats = {
+  papers: number;
+  chunks: number;
+  avg_chunks_per_paper: number;
+  embedding_model: string;
+  embedding_dims: number;
+  generation_model: string;
+  reranker_model: string;
+  retrieval_candidate_k: number;
+  retrieval_final_k: number;
+  similarity_threshold: number;
+  cache_ttl_seconds: number;
 };
 
-type AskResponse = {
-  answer: string;
-  unsupported: boolean;
-  citations: Citation[];
-  from_cache?: boolean;
-  request_id?: string | null;
+type Health = {
+  status: string;
+  uptime_seconds: number;
+  checks: Record<string, { status: string }>;
 };
 
-type Message = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  meta?: AskResponse;
-};
+type StepChat =
+  | { type: "query"; query: string }
+  | { type: "embed"; query: string; vectorPreview: string }
+  | { type: "retrieve"; query: string; candidates: { src: "dense" | "keyword"; sim?: string; text: string }[] }
+  | { type: "fuse"; query: string; items: { rank: number; score: string; text: string }[] }
+  | { type: "filter"; query: string; items: { sim: string; text: string; kept: boolean }[] }
+  | { type: "rerank"; query: string; items: { score: number; text: string; kept: boolean }[] }
+  | { type: "answer"; query: string; answer: string; citations: { n: number; paper: string }[] }
+  | { type: "cache"; query: string; answer: string; cacheKey: string; ttl: string };
 
-type Paper = {
-  paper_id: string;
-  file_name: string;
-  is_session_upload: boolean;
-};
+const QUERY = "What are unidirectional error correcting codes?";
 
-/* ── Constants ──────────────────────────────────────────────────────────── */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-/* ── Helpers ────────────────────────────────────────────────────────────── */
-
-function genId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-
-const SUGGESTED_QUESTIONS = [
-  "What are sparse autoencoders used for in mechanistic interpretability?",
-  "How do transformer attention mechanisms handle long-range dependencies?",
-  "What are unidirectional error-correcting codes?",
-  "How does retrieval-augmented generation improve factual accuracy?",
+const PIPELINE: { step: number; id: string; label: string; badge: string; description: string; detail: string; chat: StepChat }[] = [
+  {
+    step: 1, id: "query", label: "User Query", badge: "Input",
+    description: "Natural language question submitted through the chat interface.",
+    detail: "plain text → pipeline entry point",
+    chat: { type: "query", query: QUERY },
+  },
+  {
+    step: 2, id: "embed", label: "Query Embedding", badge: "OpenAI",
+    description: "The query is converted into a dense 1536-dimensional vector by OpenAI's embedding model.",
+    detail: "text-embedding-3-small · 1536 dims · cosine space",
+    chat: {
+      type: "embed", query: QUERY,
+      vectorPreview: "[0.021, −0.034, 0.189, 0.002, −0.117, 0.063, 0.044, −0.091 …] × 1536 dims",
+    },
+  },
+  {
+    step: 3, id: "dual", label: "Dual Retrieval", badge: "Parallel",
+    description: "Dense vector search (pgvector cosine) and keyword search (PostgreSQL ILIKE) run simultaneously, each returning 20 candidates.",
+    detail: "pgvector cosine similarity + ILIKE · 20 candidates each",
+    chat: {
+      type: "retrieve", query: QUERY,
+      candidates: [
+        { src: "dense", sim: "0.87", text: "Unidirectional codes detect all errors where bit-flips go in one direction…" },
+        { src: "keyword", text: "…t-EC codes, also called t-UEC codes, are used in memory systems…" },
+        { src: "dense", sim: "0.81", text: "A code is t-unidirectional error correcting if it can correct t errors…" },
+      ],
+    },
+  },
+  {
+    step: 4, id: "rrf", label: "RRF Fusion", badge: "Fusion",
+    description: "Reciprocal Rank Fusion merges both result sets into a single ranked list, rewarding chunks that rank highly in both searches.",
+    detail: "score = Σ 1/(rank + 60) · duplicates collapsed",
+    chat: {
+      type: "fuse", query: QUERY,
+      items: [
+        { rank: 1, score: "0.031", text: "Unidirectional codes detect all errors where…" },
+        { rank: 2, score: "0.016", text: "…t-EC codes, also called t-UEC codes…" },
+        { rank: 3, score: "0.013", text: "A code is t-unidirectional error correcting…" },
+      ],
+    },
+  },
+  {
+    step: 5, id: "filter", label: "Threshold Filter", badge: "Filter",
+    description: "Chunks whose cosine similarity falls below the threshold are pruned, removing noisy or unrelated results.",
+    detail: "threshold = 0.30 cosine similarity",
+    chat: {
+      type: "filter", query: QUERY,
+      items: [
+        { sim: "0.87", text: "Unidirectional codes detect all errors…", kept: true },
+        { sim: "0.51", text: "A code is t-unidirectional error correcting…", kept: true },
+        { sim: "0.21", text: "Memory systems often require robust error…", kept: false },
+      ],
+    },
+  },
+  {
+    step: 6, id: "rerank", label: "LLM Reranker", badge: "AI Score",
+    description: "gpt-4o-mini independently scores each remaining chunk 0–10 for relevance to the specific query.",
+    detail: "Model: gpt-4o-mini · min passing score = 4",
+    chat: {
+      type: "rerank", query: QUERY,
+      items: [
+        { score: 9, text: "Unidirectional codes detect all errors…", kept: true },
+        { score: 7, text: "A code is t-unidirectional error correcting…", kept: true },
+        { score: 2, text: "Memory systems often require robust error…", kept: false },
+      ],
+    },
+  },
+  {
+    step: 7, id: "generate", label: "Answer Generation", badge: "Generate",
+    description: "gpt-4o-mini synthesises a grounded answer using only the top-K reranked chunks, with numbered inline citations.",
+    detail: "Top-K = 5 chunks · grounded generation · cited sources",
+    chat: {
+      type: "answer", query: QUERY,
+      answer: "Unidirectional error correcting codes detect and correct errors where all bit-flips go in the same direction [1]. They are widely used in memory systems and storage devices where asymmetric faults are common [2].",
+      citations: [
+        { n: 1, paper: "error_correcting_codes.pdf" },
+        { n: 2, paper: "memory_fault_models.pdf" },
+      ],
+    },
+  },
+  {
+    step: 8, id: "cache", label: "Redis Cache", badge: "Cache",
+    description: "The complete response is stored in Redis. Identical queries are served instantly without any LLM calls.",
+    detail: "TTL = 3600 s · key = hash(query + K)",
+    chat: {
+      type: "cache", query: QUERY,
+      answer: "Unidirectional error correcting codes detect and correct errors where all bit-flips go in the same direction [1]…",
+      cacheKey: "ask:3f8a2c1b…",
+      ttl: "3600 s",
+    },
+  },
 ];
 
-/* ── Helpers ────────────────────────────────────────────────────────────── */
+const TECH_STACK = [
+  {
+    name: "FastAPI", version: "0.136",
+    role: "Async Python API with automatic OpenAPI docs, dependency injection, and CORS middleware.",
+    color: "#059669",
+  },
+  {
+    name: "PostgreSQL + pgvector", version: "pg16 + 0.8",
+    role: "Primary store for chunk text and 1536-dim embeddings with an IVFFlat index for fast cosine similarity search.",
+    color: "#4F46E5",
+  },
+  {
+    name: "Redis", version: "7-alpine",
+    role: "In-memory answer cache with a 1-hour TTL. Eliminates repeated LLM calls for identical queries.",
+    color: "#DC2626",
+  },
+  {
+    name: "OpenAI", version: "gpt-4o-mini",
+    role: "Dual role: text-embedding-3-small produces 1536-dim chunk embeddings; gpt-4o-mini handles LLM reranking and answer generation.",
+    color: "#B45309",
+  },
+];
 
-function prettifyTopic(raw: string): string {
-  return raw
-    .replace(/\.(pdf|txt|md)$/i, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
 
-/* ── Icons ──────────────────────────────────────────────────────────────── */
+export default function Dashboard() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
+  const [paused, setPaused] = useState(false);
 
-const AtomIcon = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-    <circle cx="12" cy="12" r="2" />
-    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-    <path d="M2 12h20" />
-  </svg>
-);
+  useEffect(() => {
+    fetch(`${API_BASE}/api/stats`).then(r => r.json()).then(setStats).catch(() => {});
+    fetch(`${API_BASE}/health`).then(r => r.json()).then(setHealth).catch(() => {});
+  }, []);
 
-const BookIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-  </svg>
-);
+  useEffect(() => {
+    if (paused) return;
+    const id = setInterval(() => setActiveStep(s => (s + 1) % PIPELINE.length), 3000);
+    return () => clearInterval(id);
+  }, [paused]);
 
-const UploadIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="17 8 12 3 7 8" />
-    <line x1="12" y1="3" x2="12" y2="15" />
-  </svg>
-);
+  const uptime = (() => {
+    const s = health?.uptime_seconds;
+    if (!s) return "—";
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  })();
 
-const BoltIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-  </svg>
-);
-
-const WarnIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-    <path d="M12 9v4M12 17h.01" />
-  </svg>
-);
-
-const MenuIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    <line x1="3" y1="6" x2="21" y2="6" />
-    <line x1="3" y1="12" x2="21" y2="12" />
-    <line x1="3" y1="18" x2="21" y2="18" />
-  </svg>
-);
-
-const PenIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    <path d="M12 20h9" />
-    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-  </svg>
-);
-
-/* ── CitationFootnote ────────────────────────────────────────────────────── */
-
-function CitationFootnote({ c, msgId }: { c: Citation; msgId: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const label = prettifyTopic(c.file_name || c.paper_id);
+  const allOk = health?.status === "ok";
+  const checking = !health;
 
   return (
-    <div key={`${msgId}-${c.chunk_id}`} className="flex gap-3 group">
-      <span className="font-serif shrink-0 text-xs font-bold text-accent mt-0.5">
-        [{c.source_number}]
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-text/80 truncate">{label}</p>
-        <p
-          className={`mt-0.5 text-xs leading-relaxed text-muted/80 transition-all ${
-            expanded ? "" : "line-clamp-2"
-          }`}
-        >
-          {c.preview}
-        </p>
-        {c.preview.length > 120 && (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="mt-0.5 text-[10px] text-accent/50 hover:text-accent transition-colors"
-          >
-            {expanded ? "collapse" : "expand"}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+    <div className="min-h-screen bg-bg font-sans text-text">
 
-/* ── UserQuery ──────────────────────────────────────────────────────────── */
-
-function UserQuery({ msg }: { msg: Message }) {
-  return (
-    <div className="msg-enter flex justify-end gap-3 py-2">
-      <div className="max-w-[78%] text-right">
-        <p className="mb-1 text-[10px] uppercase tracking-[0.15em] text-muted/50">Query</p>
-        <p className="font-serif text-[15px] italic leading-relaxed text-text/80">
-          &ldquo;{msg.text}&rdquo;
-        </p>
-      </div>
-      <div className="mt-5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/8 text-[10px] font-bold text-accent">
-        Q
-      </div>
-    </div>
-  );
-}
-
-/* ── AIResponse ─────────────────────────────────────────────────────────── */
-
-function AIResponse({ msg }: { msg: Message }) {
-  const citations = msg.meta?.citations ?? [];
-  const unsupported = msg.meta?.unsupported ?? false;
-  const fromCache = msg.meta?.from_cache ?? false;
-
-  return (
-    <div className="msg-enter space-y-4 py-2">
-      {/* Decorative rule */}
-      <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-stone-200" />
-        <div className="text-accent/40">
-          <AtomIcon size={11} />
-        </div>
-        <div className="h-px flex-1 bg-stone-200" />
-      </div>
-
-      {/* Unsupported warning */}
-      {unsupported && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <WarnIcon />
-          <span className="font-serif italic">
-            The indexed papers do not contain sufficient evidence to answer this question.
-          </span>
-        </div>
-      )}
-
-      {/* Answer body — serif, generous line height */}
-      <div className="font-serif text-[15.5px] leading-[1.8] text-text/90 whitespace-pre-wrap">
-        {msg.text}
-      </div>
-
-      {/* Cache badge */}
-      {fromCache && (
-        <div className="flex items-center gap-1.5 text-[10px] text-muted/50">
-          <BoltIcon />
-          <span className="uppercase tracking-widest">Cached response</span>
-        </div>
-      )}
-
-      {/* Footnotes */}
-      {citations.length > 0 && (
-        <div className="border-t border-stone-200 pt-4 space-y-3">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-muted/50">
-            References
-          </p>
-          <div className="space-y-3">
-            {citations.map((c) => (
-              <CitationFootnote
-                key={`${msg.id}-${c.chunk_id}`}
-                c={c}
-                msgId={msg.id}
-              />
-            ))}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-20 glass border-b border-stone-200/70 px-6 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="text-accent">
+              <circle cx="12" cy="12" r="2" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              <path d="M2 12h20" />
+            </svg>
+            <span className="font-serif text-base font-bold text-text">Papyrus</span>
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Page ───────────────────────────────────────────────────────────────── */
-
-export default function Page() {
-  const { user, token, logout } = useAuth();
-  const router = useRouter();
-
-  const [question, setQuestion] = useState("");
-  const [k, setK] = useState(5);
-  const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [showUpload, setShowUpload] = useState(false);
-  const [paperCount, setPaperCount] = useState<number | null>(null);
-  const [papers, setPapers] = useState<Paper[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const profileMenuRef = useRef<HTMLDivElement>(null);
-
-  const isInitial = messages.length === 0 && !loading;
-  const sessionPapers = papers.filter((p) => p.is_session_upload);
-  const indexedPapers = papers.filter((p) => !p.is_session_upload);
-
-  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-
-  // Load papers for everyone on mount
-  useEffect(() => {
-    refreshPaperCount();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Refresh paper list when auth state changes
-  useEffect(() => {
-    refreshPaperCount();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  // Close profile dropdown on outside click
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
-        setShowProfileMenu(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  async function refreshPaperCount() {
-    try {
-      const res = await fetch(`${API_BASE}/api/papers`, { headers: authHeaders });
-      if (res.ok) {
-        const data: Paper[] = await res.json();
-        setPapers(data);
-        setPaperCount(data.length);
-      }
-    } catch { /* backend may not be running yet */ }
-  }
-
-  const canSend = useMemo(
-    () => question.trim().length > 0 && !loading,
-    [question, loading]
-  );
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
-
-  function autoResize() {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
-  }
-
-  async function onSubmit(e?: FormEvent) {
-    e?.preventDefault();
-    if (!canSend) return;
-
-    const userMessage: Message = { id: genId(), role: "user", text: question.trim() };
-    setMessages((prev) => [...prev, userMessage]);
-    const q = question.trim();
-    setQuestion("");
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
-    setLoading(true);
-    setSidebarOpen(false);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, k }),
-      });
-      if (!res.ok) throw new Error(`Status ${res.status}`);
-      const data = (await res.json()) as AskResponse;
-      setMessages((prev) => [
-        ...prev,
-        { id: genId(), role: "assistant", text: data.answer, meta: data },
-      ]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setMessages((prev) => [
-        ...prev,
-        { id: genId(), role: "assistant", text: `Could not reach the backend: ${msg}` },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      e.preventDefault();
-      onSubmit();
-    }
-  }
-
-  const useSuggestion = useCallback((s: string) => {
-    setQuestion(s);
-    setTimeout(() => { textareaRef.current?.focus(); autoResize(); }, 0);
-  }, []);
-
-  /* ── Sidebar paper row ────────────────────────────────────────────────── */
-  function SidebarPaperRow({ p }: { p: Paper }) {
-    const label = prettifyTopic(p.file_name || p.paper_id);
-    const [deleting, setDeleting] = useState(false);
-    const [loadingPdf, setLoadingPdf] = useState(false);
-
-    async function handleViewPdf(e: React.MouseEvent) {
-      e.stopPropagation();
-      setLoadingPdf(true);
-      try {
-        const res = await fetch(`${API_BASE}/api/papers/${p.paper_id}/pdf`, { headers: authHeaders });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-      } finally {
-        setLoadingPdf(false);
-      }
-    }
-
-    async function handleDelete(e: React.MouseEvent) {
-      e.stopPropagation();
-      if (!window.confirm(`Remove "${label}" from the library?`)) return;
-      setDeleting(true);
-      try {
-        await fetch(`${API_BASE}/api/papers/${p.paper_id}`, { method: "DELETE", headers: authHeaders });
-        await refreshPaperCount();
-      } finally {
-        setDeleting(false);
-      }
-    }
-
-    return (
-      <div className={`group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/8 ${
-        p.is_session_upload ? "text-accent/80" : "text-text/70"
-      }`}>
-        <button
-          onClick={() => { useSuggestion(`What are the key findings in "${label}"?`); setSidebarOpen(false); }}
-          className="flex flex-1 items-start gap-2.5 text-left min-w-0"
-        >
-          <span className={`mt-0.5 shrink-0 ${p.is_session_upload ? "text-accent/50" : "text-muted/40"} group-hover:text-accent/60 transition-colors`}>
-            <BookIcon />
-          </span>
-          <span className="text-xs leading-snug">{label}</span>
-        </button>
-        {user && <button
-          onClick={handleViewPdf}
-          disabled={loadingPdf}
-          title="View PDF"
-          className="shrink-0 mt-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-muted/40 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </button>}
-        {user && <button
-          onClick={handleDelete}
-          disabled={deleting}
-          title="Remove paper"
-          className="shrink-0 mt-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-muted/40 hover:text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-screen flex-col overflow-hidden">
-
-      {/* ══ Header — journal masthead ════════════════════════════════════════ */}
-      <header className="shrink-0 border-b border-stone-200 bg-bg">
-        {/* Top amber rule */}
-        <div className="h-0.5 bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
-
-        <div className="flex items-center justify-between px-5 py-3.5">
-          {/* Left: hamburger (mobile) + brand */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen((v) => !v)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-stone-100 hover:text-text md:hidden"
-            >
-              <MenuIcon />
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-accent"><AtomIcon size={16} /></span>
-                <h1 className="font-serif text-base font-bold tracking-tight text-text">
-                  Scientific RAG Assistant
-                </h1>
-              </div>
-              <p className="pl-6 text-[11px] italic text-muted/60">
-                Grounded answers from indexed research
-              </p>
+            <div className="hidden items-center gap-2 sm:flex">
+              {["database", "openai", "redis"].map(k => (
+                <span key={k} title={k} className={`h-2 w-2 rounded-full transition-colors ${
+                  checking ? "animate-pulse bg-stone-300" :
+                  health?.checks[k]?.status === "ok" ? "bg-success" : "bg-warn"
+                }`} />
+              ))}
+              <span className="text-xs text-muted/50">
+                {checking ? "Checking…" : allOk ? "All systems up" : "Degraded"}
+              </span>
             </div>
-          </div>
-
-          {/* Right: controls */}
-          <div className="flex items-center gap-2.5">
-            <div className="hidden items-center gap-2 rounded-full border border-stone-200 bg-panel px-3 py-1.5 text-xs md:flex">
-              <span className="uppercase tracking-widest text-muted/50" style={{ fontSize: "9px" }}>Top-K</span>
-              <input
-                type="range" min={1} max={10} value={k}
-                onChange={(e) => setK(Number(e.target.value))}
-                className="h-1 w-16 accent-accent"
-              />
-              <span className="w-3 text-center font-mono text-accent">{k}</span>
-            </div>
-            <button
-              onClick={() => { if (!user) { router.push("/login"); return; } setShowUpload(true); }}
-              className="flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-xs font-semibold text-accent transition-colors hover:bg-accent/18"
+            <Link
+              href="/chat"
+              className="flex items-center gap-1.5 rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent/90"
             >
-              <UploadIcon />
-              Upload Paper
-            </button>
-            {user ? (
-              <div ref={profileMenuRef} className="relative">
-                <button
-                  onClick={() => setShowProfileMenu(v => !v)}
-                  className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-stone-200 transition-opacity hover:opacity-75"
-                >
-                  {user.picture ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={user.picture} alt={user.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center bg-stone-100 text-xs font-medium text-stone-500">
-                      {(user.name || user.email).charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                </button>
-                {showProfileMenu && (
-                  <div className="absolute right-0 top-9 z-50 min-w-[180px] rounded-xl border border-stone-200 bg-white py-1 shadow-lg">
-                    <div className="border-b border-stone-100 px-4 py-2.5">
-                      <p className="text-xs font-semibold text-text truncate">{user.name}</p>
-                      <p className="text-xs text-muted/60 truncate">{user.email}</p>
-                    </div>
-                    <button
-                      onClick={() => { setShowProfileMenu(false); logout(); }}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-xs text-muted/70 transition-colors hover:bg-stone-50 hover:text-red-500"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                        <polyline points="16 17 21 12 16 7" />
-                        <line x1="21" y1="12" x2="9" y2="12" />
-                      </svg>
-                      Sign out
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={() => router.push("/login")}
-                className="rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent/90"
-              >
-                Sign in
-              </button>
-            )}
+              Try the Assistant
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </Link>
           </div>
         </div>
       </header>
 
-      {/* ══ Body: sidebar + main ════════════════════════════════════════════ */}
-      <div className="flex flex-1 overflow-hidden">
+      <main className="mx-auto max-w-6xl px-6 pb-24 pt-14">
 
-        {/* ── Sidebar overlay on mobile ─────────────────────────────────── */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-20 bg-stone-900/20 backdrop-blur-sm md:hidden"
-            onClick={() => setSidebarOpen(false)}
+        {/* ── Hero ──────────────────────────────────────────────────────── */}
+        <section className="relative mb-16 overflow-hidden rounded-3xl">
+          {/* Anime background image */}
+          <Image
+            src="/img_bg.jpg"
+            alt=""
+            fill
+            priority
+            className="object-cover object-center"
           />
+          {/* Dark overlay — top opaque for text, fades to page bg at bottom */}
+          <div className="absolute inset-0 bg-gradient-to-b from-amber-950/85 via-amber-900/60 to-[#F7F4EF]" />
+
+          {/* Content */}
+          <div className="relative z-10 px-6 pb-24 pt-16 text-center sm:px-12">
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.22em] text-amber-200/90">
+              Scientific RAG Assistant
+            </p>
+            <h1 className="font-serif text-4xl font-bold text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
+              How Papyrus<br className="hidden sm:block" /> Finds Answers
+            </h1>
+            <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-amber-100/85">
+              A multi-stage retrieval pipeline combining dense vector search, keyword matching,
+              reciprocal rank fusion, and LLM reranking to surface the most relevant evidence
+              from the indexed paper corpus.
+            </p>
+
+            <div className="mt-10 flex flex-col items-center gap-5">
+              <Link
+                href="/chat"
+                className="inline-flex items-center gap-2.5 rounded-full bg-white px-8 py-3.5 text-sm font-bold text-amber-900 shadow-lg transition-all hover:scale-[1.05] hover:shadow-xl"
+              >
+                Try the Assistant
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+              </Link>
+              {stats && (
+                <div className="flex flex-wrap justify-center gap-2.5">
+                  {([
+                    { v: stats.papers,                  l: "papers indexed" },
+                    { v: stats.chunks.toLocaleString(), l: "vector chunks"  },
+                    { v: `${stats.embedding_dims}-dim`, l: "embeddings"     },
+                    { v: `up ${uptime}`,                l: "uptime"         },
+                  ] as { v: string | number; l: string }[]).map(({ v, l }) => (
+                    <span key={l} className="rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-sm backdrop-blur-sm">
+                      <span className="font-bold text-white">{v}</span>
+                      <span className="ml-1.5 text-amber-100/80">{l}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Stat cards ────────────────────────────────────────────────── */}
+        {stats && (
+          <section className="mb-16 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <StatCard label="Papers Indexed"       value={stats.papers}                          sub="default corpus"                       accent="from-amber-500 to-orange-500" />
+            <StatCard label="Vector Chunks"        value={stats.chunks.toLocaleString()}          sub={`~${stats.avg_chunks_per_paper} per paper`} accent="from-indigo-500 to-violet-500" />
+            <StatCard label="Retrieval Candidates" value={stats.retrieval_candidate_k}            sub="per search method"                    accent="from-emerald-500 to-teal-500" />
+            <StatCard label="Final Top-K"          value={stats.retrieval_final_k}               sub={`threshold ${stats.similarity_threshold}`}  accent="from-rose-500 to-pink-500"  />
+          </section>
         )}
 
-        {/* ── Sidebar ───────────────────────────────────────────────────── */}
-        <aside
-          className={`
-            fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-stone-200 bg-panel pt-[57px] transition-transform duration-200
-            md:relative md:inset-auto md:z-auto md:flex md:w-60 md:shrink-0 md:translate-x-0 md:pt-0
-            ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-          `}
-        >
-          {/* Sidebar header */}
-          <div className="border-b border-stone-200 px-5 py-4">
-            <h2 className="font-serif text-sm font-semibold text-text">Paper Library</h2>
-            <p className="mt-0.5 text-[11px] text-muted/60">
-              {paperCount === null ? "Loading…" : paperCount === 0 ? "No papers indexed" : `${paperCount} paper${paperCount !== 1 ? "s" : ""} indexed`}
-            </p>
-          </div>
+        {/* ── Pipeline timeline ─────────────────────────────────────────── */}
+        <section className="mb-16">
+          <SectionHeader
+            label="Retrieval Pipeline"
+            title="8-Stage Query Processing"
+            description="Every query flows through this sequence. Click any step to explore — or watch the example query transform live as it moves through each stage."
+          />
 
-          {/* Papers list */}
-          <div className="flex-1 overflow-y-auto px-2 py-3">
-            {sessionPapers.length > 0 && (
-              <div className="mb-4">
-                <p className="px-3 mb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-accent/60">
-                  This Session
-                </p>
-                {sessionPapers.map((p) => <SidebarPaperRow key={p.paper_id} p={p} />)}
-              </div>
-            )}
+          <div className="mt-10">
+            {PIPELINE.map((step, i) => (
+              <div key={step.id} className="flex gap-4 sm:gap-6">
 
-            {indexedPapers.length > 0 && (
-              <div>
-                <p className="px-3 mb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-muted/45">
-                  Indexed
-                </p>
-                {indexedPapers.map((p) => <SidebarPaperRow key={p.paper_id} p={p} />)}
-              </div>
-            )}
-
-            {papers.length === 0 && (
-              <div className="px-3 py-8 text-center">
-                <p className="font-serif text-xs italic text-muted/50">No papers indexed yet.</p>
-                <p className="mt-1 text-[11px] text-muted/40">Upload a PDF to get started.</p>
-              </div>
-            )}
-          </div>
-
-          {/* Upload button */}
-          <div className="border-t border-stone-200 p-4">
-            <button
-              onClick={() => { if (!user) { setSidebarOpen(false); router.push("/login"); return; } setShowUpload(true); setSidebarOpen(false); }}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-accent/30 py-2.5 text-xs font-medium text-accent/80 transition-colors hover:border-accent/50 hover:bg-accent/5 hover:text-accent"
-            >
-              <UploadIcon />
-              Upload a paper
-            </button>
-          </div>
-        </aside>
-
-        {/* ── Main content ──────────────────────────────────────────────── */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-
-          {/* Scrollable content */}
-          <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-2xl px-6 py-10 space-y-8">
-
-              {/* ── Empty / welcome state ─────────────────────────────── */}
-              {isInitial && (
-                <div className="space-y-10">
-                  {/* Masthead block */}
-                  <div className="space-y-3 border-b-2 border-stone-200 pb-8">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-accent/70">
-                      Research Assistant
-                    </p>
-                    <h2 className="font-serif text-4xl font-bold leading-tight text-text">
-                      Ask a scientific<br />question.
-                    </h2>
-                    <p className="max-w-md font-serif text-[15px] leading-relaxed text-muted/80 italic">
-                      Every answer is grounded in indexed research papers.
-                      All claims are traceable to a specific source.
-                    </p>
-                  </div>
-
-                  {/* Suggested queries */}
-                  <div className="space-y-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted/50">
-                      Try asking
-                    </p>
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      {SUGGESTED_QUESTIONS.map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => useSuggestion(s)}
-                          className="group rounded-xl border border-stone-200 bg-white px-4 py-3.5 text-left transition-all hover:border-accent/30 hover:bg-amber-50/60 hover:shadow-sm"
-                        >
-                          <span className="font-serif text-sm italic text-text/70 group-hover:text-text/90 transition-colors leading-snug">
-                            &ldquo;{s}&rdquo;
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Low-paper notice */}
-                  {paperCount !== null && paperCount < 3 && (
-                    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="2" strokeLinecap="round" className="mt-0.5 shrink-0 text-accent/70">
-                        <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
+                {/* Spine: circle + connector */}
+                <div className="flex flex-col items-center">
+                  <button
+                    onClick={() => { setActiveStep(i); setPaused(true); }}
+                    className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-300 focus:outline-none ${
+                      i === activeStep
+                        ? "border-accent bg-accent text-white shadow-glow scale-110"
+                        : i < activeStep
+                        ? "border-accent/40 bg-accentSoft/40 text-accent"
+                        : "border-stone-200 bg-white text-muted/60 hover:border-accent/30"
+                    }`}
+                  >
+                    {i < activeStep ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
                       </svg>
-                      <p className="font-serif text-sm leading-relaxed text-amber-900/80">
-                        <span className="font-semibold not-italic">
-                          {paperCount === 0 ? "No papers indexed yet." : `Only ${paperCount} paper${paperCount !== 1 ? "s" : ""} indexed.`}
-                        </span>{" "}
-                        Upload at least <strong>3–5 papers</strong> for reliable answers, or <strong>8–12</strong> for broader comparisons.
-                      </p>
+                    ) : (
+                      <span className="text-[11px] font-bold">{step.step}</span>
+                    )}
+                    {i === activeStep && (
+                      <span className="absolute inset-0 rounded-full bg-accent animate-ping opacity-20 pointer-events-none" />
+                    )}
+                  </button>
+                  {i < PIPELINE.length - 1 && (
+                    <div className={`w-0.5 flex-1 min-h-[12px] my-1 rounded-full transition-colors duration-500 ${
+                      i < activeStep ? "bg-accent/40" : "bg-stone-200"
+                    }`} />
+                  )}
+                </div>
+
+                {/* Card */}
+                <div
+                  className={`flex-1 mb-3 cursor-pointer overflow-hidden rounded-2xl border transition-all duration-500 ${
+                    i === activeStep
+                      ? "border-accent/30 bg-white shadow-glow"
+                      : i < activeStep
+                      ? "border-accent/15 bg-accentSoft/8 hover:border-accent/25"
+                      : "border-stone-200 bg-panel/40 hover:border-stone-300"
+                  }`}
+                  style={{ maxHeight: i === activeStep ? "800px" : "56px" }}
+                  onClick={() => { setActiveStep(i); setPaused(true); }}
+                >
+                  {/* Header row — always visible */}
+                  <div className="flex h-14 items-center justify-between px-5">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`text-sm font-semibold transition-colors ${
+                        i === activeStep ? "text-accent" :
+                        i < activeStep ? "text-text/75" : "text-muted/65"
+                      }`}>
+                        {step.label}
+                      </span>
+                      <span className={`rounded px-1.5 py-px text-[9px] font-bold uppercase tracking-wide transition-all ${
+                        i === activeStep ? "bg-accent text-white" :
+                        i < activeStep ? "bg-accent/20 text-accent/80" :
+                        "bg-stone-200/80 text-muted/65"
+                      }`}>
+                        {step.badge}
+                      </span>
+                    </div>
+                    {i < activeStep && <span className="text-[10px] font-medium text-accent/70">Complete</span>}
+                    {i > activeStep && <span className="text-[10px] text-muted/55">Pending</span>}
+                    {i === activeStep && <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />}
+                  </div>
+
+                  {/* Expanded content */}
+                  {i === activeStep && (
+                    <div className="msg-enter border-t border-accent/10 px-5 pb-5 pt-4">
+                      <p className="mb-4 text-sm text-muted/70">{step.description}</p>
+                      <MiniChatWindow chat={step.chat} />
+                      <code className="mt-3 inline-block rounded-md bg-accent/10 px-2.5 py-1 text-xs text-accent">
+                        {step.detail}
+                      </code>
                     </div>
                   )}
                 </div>
-              )}
 
-              {/* ── Message thread ────────────────────────────────────── */}
-              {messages.map((msg) =>
-                msg.role === "user"
-                  ? <UserQuery key={msg.id} msg={msg} />
-                  : <AIResponse key={msg.id} msg={msg} />
-              )}
-
-              {/* ── Loading ───────────────────────────────────────────── */}
-              {loading && (
-                <div className="msg-enter space-y-4 py-2">
-                  <div className="flex items-center gap-3">
-                    <div className="h-px flex-1 bg-stone-200" />
-                    <div className="text-accent/40"><AtomIcon size={11} /></div>
-                    <div className="h-px flex-1 bg-stone-200" />
-                  </div>
-                  <div className="flex items-center gap-2 pl-1">
-                    <span className="dot-bounce h-1.5 w-1.5 rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
-                    <span className="dot-bounce h-1.5 w-1.5 rounded-full bg-muted/40" style={{ animationDelay: "160ms" }} />
-                    <span className="dot-bounce h-1.5 w-1.5 rounded-full bg-muted/40" style={{ animationDelay: "320ms" }} />
-                    <span className="font-serif text-xs italic text-muted/50 ml-1">Searching papers…</span>
-                  </div>
-                </div>
-              )}
-
-              <div ref={bottomRef} />
-            </div>
-          </main>
-
-          {/* ── Compose bar ─────────────────────────────────────────────── */}
-          <div className="shrink-0 border-t border-stone-200 bg-bg px-6 py-4">
-            <form onSubmit={onSubmit} className="mx-auto max-w-2xl">
-              <div className="flex items-end gap-3 rounded-2xl border border-stone-200 bg-white px-5 py-3.5 shadow-sm transition-all focus-within:border-accent/40 focus-within:shadow-glow">
-                <span className="mb-1 shrink-0 text-muted/35">
-                  <PenIcon />
-                </span>
-                <textarea
-                  ref={textareaRef}
-                  rows={1}
-                  value={question}
-                  onChange={(e) => { setQuestion(e.target.value); autoResize(); }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask a scientific question…"
-                  className="max-h-40 flex-1 resize-none bg-transparent font-serif text-[14.5px] italic leading-relaxed text-text outline-none placeholder:not-italic placeholder:font-sans placeholder:text-sm placeholder:text-muted/40"
-                />
-                <button
-                  type="submit"
-                  disabled={!canSend}
-                  className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-25"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M12 19V5M5 12l7-7 7 7" />
-                  </svg>
-                </button>
               </div>
-              <p className="mt-2 text-center text-[10px] text-muted/35">
-                Ctrl + Enter to send · answers grounded in indexed papers only
-              </p>
-            </form>
+            ))}
           </div>
 
-        </div>
-      </div>
+          <div className="mt-1 flex items-center justify-between">
+            <p className="text-xs text-muted/70">Click any step · auto-advances every 3 s</p>
+            <button
+              onClick={() => setPaused(p => !p)}
+              className="rounded-full border border-stone-200 px-3 py-1 text-xs text-muted/60 transition-colors hover:border-accent/30 hover:text-accent"
+            >
+              {paused ? "▶ Resume" : "⏸ Pause"}
+            </button>
+          </div>
+        </section>
 
-      {/* ── Upload modal ─────────────────────────────────────────────────── */}
-      {showUpload && (
-        <UploadModal
-          onClose={() => setShowUpload(false)}
-          onDone={() => { refreshPaperCount(); }}
-        />
-      )}
+        {/* ── Retrieval deep dive ───────────────────────────────────────── */}
+        <section className="mb-16">
+          <SectionHeader
+            label="Retrieval Strategy"
+            title="Dual Search + RRF Fusion"
+            description="Two fundamentally different retrieval methods run in parallel then combined with Reciprocal Rank Fusion — each compensates for the other's blind spots."
+          />
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-stone-200 bg-panel/60 p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="font-semibold text-text">Dense Vector Search</span>
+                <span className="rounded bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">pgvector</span>
+              </div>
+              <p className="mb-3 text-sm text-muted/70">
+                The query vector is compared against all chunk embeddings using cosine similarity.
+                Captures <strong className="text-text/80">semantic meaning</strong> — finds conceptually
+                related chunks even when exact keywords don&apos;t appear.
+              </p>
+              <code className="block rounded-lg bg-bg px-3 py-2 text-xs text-muted/70 break-all">
+                ORDER BY embedding &lt;=&gt; $query_vec LIMIT 20
+              </code>
+            </div>
+            <div className="rounded-2xl border border-stone-200 bg-panel/60 p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="font-semibold text-text">Keyword Search</span>
+                <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">ILIKE</span>
+              </div>
+              <p className="mb-3 text-sm text-muted/70">
+                Exact and partial term matching against raw chunk text. Reliable for
+                <strong className="text-text/80"> proper nouns, acronyms, and technical terms</strong> that
+                embeddings may not capture precisely.
+              </p>
+              <code className="block rounded-lg bg-bg px-3 py-2 text-xs text-muted/70 break-all">
+                WHERE text ILIKE &apos;%query_term%&apos; LIMIT 20
+              </code>
+            </div>
+          </div>
+          <div className="mt-4 rounded-2xl border border-stone-200 bg-panel/60 px-6 py-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex-1">
+                <p className="mb-1 font-semibold text-text">Reciprocal Rank Fusion</p>
+                <p className="text-sm text-muted/70">
+                  Each method returns its own ranked list. RRF assigns a score to every chunk based on
+                  its rank in each list, then merges them. A chunk that ranks highly in <em>both</em> lists
+                  scores highest. The constant <code className="rounded bg-stone-200 px-1 text-xs">k=60</code> smooths
+                  top-rank dominance.
+                </p>
+              </div>
+              <div className="shrink-0 rounded-xl bg-accentSoft/60 px-5 py-3 text-center font-mono text-sm text-accent">
+                <div>RRF(d) = Σ</div>
+                <div className="mt-0.5 border-t border-accent/30 pt-0.5">k + rank<sub>i</sub>(d)</div>
+                <div className="mt-1 text-xs text-accent/80">k = 60</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Tech stack ────────────────────────────────────────────────── */}
+        <section className="mb-16">
+          <SectionHeader
+            label="Technology"
+            title="Production Stack"
+            description="Each component was selected for performance, correctness, and minimal operational overhead on a single-node deployment."
+          />
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {TECH_STACK.map(t => (
+              <div key={t.name} className="rounded-2xl border border-stone-200 bg-panel/60 p-5 transition-shadow hover:shadow-soft">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <span className="font-semibold text-text">{t.name}</span>
+                  <span className="shrink-0 rounded bg-stone-200/80 px-2 py-0.5 text-xs text-muted/70">{t.version}</span>
+                </div>
+                <div className="mb-3 h-0.5 w-8 rounded-full" style={{ backgroundColor: t.color }} />
+                <p className="text-sm text-muted/70">{t.role}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Evaluation ────────────────────────────────────────────────── */}
+        <section className="mb-16">
+          <SectionHeader
+            label="Evaluation"
+            title="Retrieval Quality Metrics"
+            description="The pipeline is evaluated against a curated set of query–paper pairs using standard information retrieval metrics."
+          />
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-stone-200 bg-panel/60 p-5">
+              <p className="mb-1 text-lg font-bold text-text">Hit@K</p>
+              <code className="mb-3 block rounded-lg bg-accentSoft/50 px-3 py-2 text-xs text-accent">
+                1 if expected_paper ∈ top-K results, else 0
+              </code>
+              <p className="text-sm text-muted/70">
+                Fraction of queries where the expected paper appears in the top-K retrieved chunks.
+                Measures whether the retriever surfaces the correct source at all.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-stone-200 bg-panel/60 p-5">
+              <p className="mb-1 text-lg font-bold text-text">MRR</p>
+              <code className="mb-3 block rounded-lg bg-accentSoft/50 px-3 py-2 text-xs text-accent">
+                1/N · Σ 1/rank(expected_paper)
+              </code>
+              <p className="text-sm text-muted/70">
+                Mean Reciprocal Rank rewards retrievers that surface the correct paper at a higher rank.
+                A score of 1.0 means the expected paper is always ranked first.
+              </p>
+            </div>
+          </div>
+          
+        </section>
+
+        {/* ── Bottom CTA ────────────────────────────────────────────────── */}
+        <section className="relative overflow-hidden rounded-3xl text-center">
+          <Image src="/img_bg.jpg" alt="" fill className="object-cover object-top" />
+          <div className="absolute inset-0 bg-amber-950/80" />
+          <div className="relative z-10 px-8 py-14">
+            <h2 className="font-serif text-3xl font-bold text-white">Ready to explore the research?</h2>
+            <p className="mx-auto mt-3 max-w-md text-sm text-amber-100/85">
+              Ask any question across {stats?.papers ?? "20"} indexed papers. Grounded answers with full citations.
+            </p>
+            <Link
+              href="/chat"
+              className="mt-8 inline-flex items-center gap-2.5 rounded-full bg-white px-9 py-3.5 text-sm font-bold text-amber-900 shadow-lg transition-all hover:scale-[1.05] hover:shadow-xl"
+            >
+              Open the Assistant
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </section>
+
+      </main>
     </div>
   );
+}
+
+/* ── Shared sub-components ────────────────────────────────────────────────── */
+
+function StatCard({ label, value, sub, accent = "from-accent to-amber-500" }: { label: string; value: string | number; sub: string; accent?: string }) {
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-stone-200 bg-panel/60 px-5 py-5 transition-all hover:-translate-y-1 hover:shadow-soft">
+      <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${accent}`} />
+      <p className="text-xs text-muted/80">{label}</p>
+      <p className="mt-1.5 text-2xl font-bold text-text">{value}</p>
+      <p className="mt-0.5 text-xs text-muted/65">{sub}</p>
+    </div>
+  );
+}
+
+function SectionHeader({ label, title, description }: { label: string; title: string; description: string }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-accent">{label}</p>
+      <h2 className="text-2xl font-semibold text-text">{title}</h2>
+      <p className="mt-1.5 max-w-2xl text-sm text-muted/85">{description}</p>
+    </div>
+  );
+}
+
+/* ── Mini chat window (pipeline demo) ────────────────────────────────────── */
+
+function MiniChatWindow({ chat }: { chat: StepChat }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-stone-200 bg-bg shadow-soft">
+      {/* macOS-style title bar */}
+      <div className="flex items-center gap-3 border-b border-stone-200 bg-panel/80 px-3 py-2">
+        <div className="flex gap-1.5">
+          <div className="h-2.5 w-2.5 rounded-full bg-red-300/80" />
+          <div className="h-2.5 w-2.5 rounded-full bg-amber-300/80" />
+          <div className="h-2.5 w-2.5 rounded-full bg-green-300/80" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="text-accent/60">
+            <circle cx="12" cy="12" r="2" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            <path d="M2 12h20" />
+          </svg>
+          <span className="font-serif text-[11px] font-bold text-text/75">Scientific RAG Assistant</span>
+        </div>
+        <div className="ml-auto h-0.5 w-10 rounded-full bg-gradient-to-r from-transparent via-accent/35 to-transparent" />
+      </div>
+
+      {/* Chat body */}
+      <div className="space-y-3 px-4 py-3">
+        {/* User query bubble */}
+        <div className="flex justify-end gap-2">
+          <div className="max-w-[80%] text-right">
+            <p className="mb-1 text-[8px] uppercase tracking-[0.15em] text-muted/65">Query</p>
+            <p className="font-serif text-[12px] italic leading-relaxed text-text/90">
+              &ldquo;{chat.query}&rdquo;
+            </p>
+          </div>
+          <div className="mt-4 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/8 text-[8px] font-bold text-accent">
+            Q
+          </div>
+        </div>
+
+        {/* Divider + AI area */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="h-px flex-1 bg-stone-200" />
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className="text-accent/35">
+              <circle cx="12" cy="12" r="2" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              <path d="M2 12h20" />
+            </svg>
+            <div className="h-px flex-1 bg-stone-200" />
+          </div>
+          <MiniChatContent chat={chat} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniChatContent({ chat }: { chat: StepChat }) {
+  switch (chat.type) {
+    case "query":
+      return (
+        <div className="flex items-center gap-1.5 pl-0.5 py-1">
+          <span className="dot-bounce h-1 w-1 rounded-full bg-muted/40" style={{ animationDelay: "0ms" }} />
+          <span className="dot-bounce h-1 w-1 rounded-full bg-muted/40" style={{ animationDelay: "160ms" }} />
+          <span className="dot-bounce h-1 w-1 rounded-full bg-muted/40" style={{ animationDelay: "320ms" }} />
+          <span className="ml-1 font-serif text-[11px] italic text-muted/70">Searching papers…</span>
+        </div>
+      );
+
+    case "embed":
+      return (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted/70">Vector embedding</p>
+          <code className="block break-all rounded-lg bg-accent/8 px-3 py-2 font-mono text-[10px] leading-relaxed text-accent/80">
+            {chat.vectorPreview}
+          </code>
+        </div>
+      );
+
+    case "retrieve":
+      return (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted/70">
+            {chat.candidates.length} candidates retrieved
+          </p>
+          {chat.candidates.map((c, i) => (
+            <div key={i} className="flex items-start gap-2 rounded-lg bg-stone-50 px-2.5 py-2">
+              <span className={`mt-px shrink-0 rounded px-1.5 py-px text-[8px] font-bold uppercase ${
+                c.src === "dense" ? "bg-indigo-100 text-indigo-600" : "bg-emerald-100 text-emerald-600"
+              }`}>
+                {c.src === "dense" ? `sim ${c.sim}` : "keyword"}
+              </span>
+              <p className="line-clamp-1 flex-1 text-[11px] leading-snug text-text/85">{c.text}</p>
+            </div>
+          ))}
+        </div>
+      );
+
+    case "fuse":
+      return (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted/70">RRF merged ranking</p>
+          {chat.items.map((item) => (
+            <div key={item.rank} className="flex items-center gap-2 rounded-lg bg-stone-50 px-2.5 py-2">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 text-[8px] font-bold text-accent">
+                {item.rank}
+              </span>
+              <span className="shrink-0 rounded bg-amber-100 px-1.5 py-px font-mono text-[8px] text-amber-700">
+                {item.score}
+              </span>
+              <p className="line-clamp-1 flex-1 text-[11px] leading-snug text-text/85">{item.text}</p>
+            </div>
+          ))}
+        </div>
+      );
+
+    case "filter":
+      return (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted/70">Threshold = 0.30</p>
+          {chat.items.map((item, i) => (
+            <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${item.kept ? "bg-stone-50" : "bg-red-50/40"}`}>
+              <span className={`shrink-0 text-[10px] font-bold ${item.kept ? "text-emerald-500" : "text-red-400"}`}>
+                {item.kept ? "✓" : "✗"}
+              </span>
+              <span className="shrink-0 rounded bg-stone-200 px-1.5 py-px font-mono text-[8px] text-muted/70">
+                {item.sim}
+              </span>
+              <p className={`line-clamp-1 flex-1 text-[11px] leading-snug ${item.kept ? "text-text/65" : "text-muted/40 line-through"}`}>
+                {item.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      );
+
+    case "rerank":
+      return (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted/70">LLM relevance scores</p>
+          {chat.items.map((item, i) => (
+            <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${item.kept ? "bg-stone-50" : "bg-red-50/40"}`}>
+              <span className={`shrink-0 text-[10px] font-bold ${item.kept ? "text-emerald-500" : "text-red-400"}`}>
+                {item.kept ? "✓" : "✗"}
+              </span>
+              <span className={`shrink-0 rounded px-1.5 py-px text-[8px] font-bold ${
+                item.score >= 7 ? "bg-emerald-100 text-emerald-700" :
+                item.score >= 4 ? "bg-amber-100 text-amber-700" :
+                "bg-red-100 text-red-600"
+              }`}>
+                {item.score}/10
+              </span>
+              <p className={`line-clamp-1 flex-1 text-[11px] leading-snug ${item.kept ? "text-text/65" : "text-muted/40 line-through"}`}>
+                {item.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      );
+
+    case "answer":
+      return (
+        <div className="space-y-2.5">
+          <p className="font-serif text-[12.5px] leading-relaxed text-text/85">{chat.answer}</p>
+          <div className="space-y-1.5 border-t border-stone-200 pt-2">
+            <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-muted/65">References</p>
+            {chat.citations.map((c) => (
+              <div key={c.n} className="flex items-start gap-1.5">
+                <span className="shrink-0 font-serif text-[9px] font-bold text-accent">[{c.n}]</span>
+                <span className="truncate text-[10px] text-muted/75">{c.paper}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+
+    case "cache":
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" className="text-accent/60">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+            <span className="text-[9px] font-semibold uppercase tracking-widest text-muted/70">Cached response</span>
+          </div>
+          <p className="font-serif text-[12.5px] leading-relaxed text-text/85">{chat.answer}</p>
+          <div className="rounded-lg bg-accent/8 px-2.5 py-1.5">
+            <code className="font-mono text-[9px] text-accent/85">
+              {chat.cacheKey} · TTL {chat.ttl} · &lt;5 ms
+            </code>
+          </div>
+        </div>
+      );
+  }
 }

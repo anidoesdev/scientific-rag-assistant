@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -47,7 +48,7 @@ export default function LoginPage() {
   const [gsiReady, setGsiReady] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && user) router.replace("/");
+    if (!isLoading && user) router.replace("/chat");
   }, [isLoading, user, router]);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function LoginPage() {
       setError(null);
       try {
         await login(response.credential);
-        router.replace("/");
+        router.replace("/chat");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Sign-in failed");
         setSigningIn(false);
@@ -101,62 +102,65 @@ export default function LoginPage() {
   if (isLoading) return null;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-bg px-4">
-      {/* Top amber accent rule */}
-      <div className="fixed top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4">
 
-      <div className="w-full max-w-sm space-y-8 text-center">
+      {/* Anime background */}
+      <Image src="/img_bg.jpg" alt="" fill priority className="object-cover object-center" />
+      <div className="absolute inset-0 bg-gradient-to-b from-amber-950/88 via-amber-900/80 to-amber-950/92" />
+
+      {/* Top shimmer line */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
+
+      <div className="relative z-10 w-full max-w-sm space-y-8 text-center">
 
         {/* Brand */}
         <div className="space-y-3">
-          <div className="flex justify-center text-accent">
+          <div className="flex justify-center text-amber-300">
             <AtomIcon />
           </div>
-          <h1 className="font-serif text-3xl font-bold tracking-tight text-text">
+          <h1 className="font-serif text-3xl font-bold tracking-tight text-white drop-shadow">
             Scientific RAG Assistant
           </h1>
-          <p className="font-serif text-sm italic leading-relaxed text-muted/70">
+          <p className="font-serif text-sm italic leading-relaxed text-amber-100/85">
             Grounded answers from indexed research papers.
             <br />
             Sign in to continue.
           </p>
         </div>
 
-        {/* Card */}
-        <div className="rounded-2xl border border-stone-200 bg-white px-8 py-8 shadow-soft space-y-5">
+        {/* Glass card */}
+        <div className="rounded-2xl border border-white/15 bg-white/10 px-8 py-8 shadow-soft backdrop-blur-xl space-y-5">
           <div className="space-y-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted/50">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/90">
               Access
             </p>
-            <p className="font-serif text-sm text-text/70">
+            <p className="font-serif text-sm text-white/88">
               Sign in to use the assistant
             </p>
           </div>
 
-          {/* Divider */}
-          <div className="h-px bg-stone-100" />
+          <div className="h-px bg-white/10" />
 
-          {/* Sign-in button */}
           {signingIn ? (
-            <div className="flex items-center justify-center gap-2.5 py-1 text-sm text-muted/60">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            <div className="flex items-center justify-center gap-2.5 py-1 text-sm text-amber-100/85">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-300 border-t-transparent" />
               <span className="font-serif italic">Signing in…</span>
             </div>
           ) : (
             <button
               onClick={handleSignIn}
               disabled={!gsiReady}
-              className="group flex w-full items-center gap-3.5 rounded-xl border border-accent/20 bg-accentSoft px-4 py-3 transition-all hover:border-accent/35 hover:bg-amber-100 active:scale-[0.985] disabled:cursor-wait disabled:opacity-50"
+              className="group flex w-full items-center gap-3.5 rounded-xl border border-white/20 bg-white/12 px-4 py-3 backdrop-blur-sm transition-all hover:border-white/35 hover:bg-white/18 active:scale-[0.985] disabled:cursor-wait disabled:opacity-50"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-black/[0.06]">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
                 <GoogleIcon />
               </span>
               <span className="flex-1 text-left">
-                <span className="block font-serif text-[13.5px] italic text-accent/90 group-hover:text-accent transition-colors">
+                <span className="block font-serif text-[13.5px] italic text-white transition-colors">
                   Continue with Google
                 </span>
               </span>
-              <span className="shrink-0 text-accent/30 transition-all group-hover:text-accent/60 group-hover:translate-x-0.5">
+              <span className="shrink-0 text-white/35 transition-all group-hover:translate-x-0.5 group-hover:text-white/65">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                   stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <path d="M5 12h14M12 5l7 7-7 7" />
@@ -166,13 +170,13 @@ export default function LoginPage() {
           )}
 
           {error && (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-600">
+            <p className="rounded-lg border border-red-300/30 bg-red-900/30 px-4 py-2.5 text-xs text-red-300">
               {error}
             </p>
           )}
         </div>
 
-        <p className="text-[11px] text-muted/40">
+        <p className="text-[11px] text-amber-200/65">
           Access is limited to signed-in users only.
         </p>
       </div>

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.ask import router as ask_router
 from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
+from app.api.stats import router as stats_router
 from app.api.upload import router as upload_router
 from app.auth.router import router as auth_router
 from app.core.config import get_settings
@@ -62,3 +63,4 @@ app.include_router(ask_router, prefix="/api")
 app.include_router(health_router)
 app.include_router(upload_router, prefix="/api")
 app.include_router(ingest_router, prefix="/api")
+app.include_router(stats_router, prefix="/api")
