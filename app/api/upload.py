@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import text as sql_text
 
 from app.auth.dependencies import get_current_user, get_optional_user
@@ -21,7 +21,10 @@ def _uploads_source_patterns() -> tuple[str, str]:
 async def list_papers(user: dict | None = Depends(get_optional_user)):
     with SessionLocal() as session:
         rows = session.execute(
-            sql_text("SELECT DISTINCT paper_id, file_name, source FROM chunks ORDER BY paper_id")
+            sql_text(
+                "SELECT DISTINCT paper_id, file_name, source, uploaded_by_user_id "
+                "FROM chunks ORDER BY paper_id"
+            )
         ).all()
 
         hidden: set[str] = set()
@@ -33,16 +36,35 @@ async def list_papers(user: dict | None = Depends(get_optional_user)):
             hidden = {r[0] for r in hidden_rows}
 
     win_prefix, unix_prefix = _uploads_source_patterns()
-    return [
-        {
-            "paper_id": r[0],
-            "file_name": r[1],
-            "is_session_upload": (r[2] or "").startswith(win_prefix[:-1])
-                or (r[2] or "").startswith(unix_prefix[:-1]),
-        }
-        for r in rows
-        if r[0] not in hidden
-    ]
+    result = []
+    for paper_id, file_name, source, uploaded_by in rows:
+        if paper_id in hidden:
+            continue
+        is_upload = (source or "").startswith(win_prefix[:-1]) or \
+                    (source or "").startswith(unix_prefix[:-1])
+        # Uploaded papers are only visible to their uploader
+        if is_upload and (not user or uploaded_by != user["id"]):
+            continue
+        result.append({"paper_id": paper_id, "file_name": file_name, "is_session_upload": is_upload})
+    return result
+
+
+@router.get("/papers/{paper_id}/pdf")
+async def get_paper_pdf(paper_id: str, _user: dict = Depends(get_current_user)):
+    with SessionLocal() as session:
+        row = session.execute(
+            sql_text("SELECT source FROM chunks WHERE paper_id = :pid LIMIT 1"),
+            {"pid": paper_id},
+        ).first()
+
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail=f"Paper '{paper_id}' not found.")
+
+    path = Path(row[0])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="PDF file not found on disk.")
+
+    return FileResponse(path, media_type="application/pdf", filename=path.name)
 
 
 @router.post("/upload")
@@ -58,6 +80,14 @@ async def upload_paper(file: UploadFile = File(...), _user: dict = Depends(get_c
 
     with SessionLocal() as session:
         result = ingest_single(dest, session)
+        if not result.get("skipped") and "paper_id" in result:
+            session.execute(
+                sql_text(
+                    "UPDATE chunks SET uploaded_by_user_id = :uid WHERE paper_id = :pid"
+                ),
+                {"uid": user["id"], "pid": result["paper_id"]},
+            )
+            session.commit()
 
     if result.get("skipped"):
         return JSONResponse(

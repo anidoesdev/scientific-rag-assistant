@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     total_chunks_for_paper INTEGER NOT NULL,
     text              TEXT NOT NULL,
     embedding         VECTOR(1536),  -- text-embedding-3-small output dimension
+    uploaded_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 

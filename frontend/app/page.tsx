@@ -261,9 +261,11 @@ export default function Page() {
   const [paperCount, setPaperCount] = useState<number | null>(null);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
 
   const isInitial = messages.length === 0 && !loading;
   const sessionPapers = papers.filter((p) => p.is_session_upload);
@@ -277,14 +279,22 @@ export default function Page() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When a user signs in, clean up their session uploads then refresh
+  // Refresh paper list when auth state changes
   useEffect(() => {
-    if (!user) return;
-    fetch(`${API_BASE}/api/uploads/cleanup`, { method: "DELETE", headers: authHeaders })
-      .catch(() => {})
-      .finally(() => refreshPaperCount());
+    refreshPaperCount();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Close profile dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   async function refreshPaperCount() {
     try {
@@ -364,6 +374,21 @@ export default function Page() {
   function SidebarPaperRow({ p }: { p: Paper }) {
     const label = prettifyTopic(p.file_name || p.paper_id);
     const [deleting, setDeleting] = useState(false);
+    const [loadingPdf, setLoadingPdf] = useState(false);
+
+    async function handleViewPdf(e: React.MouseEvent) {
+      e.stopPropagation();
+      setLoadingPdf(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/papers/${p.paper_id}/pdf`, { headers: authHeaders });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+      } finally {
+        setLoadingPdf(false);
+      }
+    }
 
     async function handleDelete(e: React.MouseEvent) {
       e.stopPropagation();
@@ -390,6 +415,17 @@ export default function Page() {
           </span>
           <span className="text-xs leading-snug">{label}</span>
         </button>
+        {user && <button
+          onClick={handleViewPdf}
+          disabled={loadingPdf}
+          title="View PDF"
+          className="shrink-0 mt-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-muted/40 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>}
         {user && <button
           onClick={handleDelete}
           disabled={deleting}
@@ -453,28 +489,44 @@ export default function Page() {
               Upload Paper
             </button>
             {user ? (
-              user.picture ? (
+              <div ref={profileMenuRef} className="relative">
                 <button
-                  onClick={logout}
-                  title={`Sign out (${user.email})`}
+                  onClick={() => setShowProfileMenu(v => !v)}
                   className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-stone-200 transition-opacity hover:opacity-75"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={user.picture} alt={user.name} className="h-full w-full object-cover" />
+                  {user.picture ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.picture} alt={user.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center bg-stone-100 text-xs font-medium text-stone-500">
+                      {(user.name || user.email).charAt(0).toUpperCase()}
+                    </span>
+                  )}
                 </button>
-              ) : (
-                <button
-                  onClick={logout}
-                  title={`Sign out (${user.email})`}
-                  className="rounded-full border border-stone-200 px-3 py-1.5 text-xs text-muted/60 transition-colors hover:text-text"
-                >
-                  Sign out
-                </button>
-              )
+                {showProfileMenu && (
+                  <div className="absolute right-0 top-9 z-50 min-w-[180px] rounded-xl border border-stone-200 bg-white py-1 shadow-lg">
+                    <div className="border-b border-stone-100 px-4 py-2.5">
+                      <p className="text-xs font-semibold text-text truncate">{user.name}</p>
+                      <p className="text-xs text-muted/60 truncate">{user.email}</p>
+                    </div>
+                    <button
+                      onClick={() => { setShowProfileMenu(false); logout(); }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-xs text-muted/70 transition-colors hover:bg-stone-50 hover:text-red-500"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                        <polyline points="16 17 21 12 16 7" />
+                        <line x1="21" y1="12" x2="9" y2="12" />
+                      </svg>
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <button
                 onClick={() => router.push("/login")}
-                className="rounded-full border border-stone-200 px-3 py-1.5 text-xs text-muted/60 transition-colors hover:border-accent/30 hover:text-accent"
+                className="rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent/90"
               >
                 Sign in
               </button>
