@@ -121,7 +121,7 @@ export default function LoginPage() {
           <h1 className="font-serif text-3xl font-bold tracking-tight text-white drop-shadow">
             Scientific RAG Assistant
           </h1>
-          <p className="font-serif text-sm italic leading-relaxed text-amber-100/85">
+          <p className="font-serif text-sm italic leading-relaxed text-white">
             Grounded answers from indexed research papers.
             <br />
             Sign in to continue.
@@ -132,10 +132,10 @@ export default function LoginPage() {
         <div className="rounded-2xl border border-white/15 bg-white/10 px-8 py-8 shadow-soft backdrop-blur-xl space-y-5">
           <div className="space-y-1">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/90">
-              Access
+              Welcome, Researcher
             </p>
-            <p className="font-serif text-sm text-white/88">
-              Sign in to use the assistant
+            <p className="font-serif text-sm text-white">
+              Ask anything. Every answer is cited.
             </p>
           </div>
 

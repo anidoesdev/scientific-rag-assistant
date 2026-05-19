@@ -244,7 +244,7 @@ export default function Dashboard() {
               Scientific RAG Assistant
             </p>
             <h1 className="font-serif text-4xl font-bold text-white drop-shadow-lg sm:text-5xl lg:text-6xl">
-              How Papyrus<br className="hidden sm:block" /> Finds Answers
+              Ask the Papers.
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-amber-100/85">
               A multi-stage retrieval pipeline combining dense vector search, keyword matching,
