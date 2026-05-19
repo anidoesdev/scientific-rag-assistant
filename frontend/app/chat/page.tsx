@@ -407,39 +407,53 @@ export default function Page() {
     }
 
     return (
-      <div className={`group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent/8 ${
+      <div className={`group rounded-lg border border-transparent px-3 py-2.5 transition-all hover:border-stone-200/80 hover:bg-accent/8 ${
         p.is_session_upload ? "text-accent/80" : "text-text/70"
       }`}>
+        {/* Name row — truncated so buttons always have room */}
         <button
           onClick={() => { useSuggestion(`What are the key findings in "${label}"?`); setSidebarOpen(false); }}
-          className="flex flex-1 items-start gap-2.5 text-left min-w-0"
+          className="flex w-full min-w-0 items-center gap-2 text-left"
         >
-          <span className={`mt-0.5 shrink-0 ${p.is_session_upload ? "text-accent/50" : "text-muted/40"} group-hover:text-accent/60 transition-colors`}>
+          <span className={`shrink-0 transition-colors ${p.is_session_upload ? "text-accent/60" : "text-muted/50"} group-hover:text-accent/70`}>
             <BookIcon />
           </span>
-          <span className="text-xs leading-snug">{label}</span>
+          <span className="flex-1 truncate text-xs leading-snug" title={label}>{label}</span>
         </button>
-        {user && <button
-          onClick={handleViewPdf}
-          disabled={loadingPdf}
-          title="View PDF"
-          className="shrink-0 mt-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-muted/40 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        </button>}
-        {user && <button
-          onClick={handleDelete}
-          disabled={deleting}
-          title="Remove paper"
-          className="shrink-0 mt-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-muted/40 hover:text-red-400 hover:bg-red-50 transition-colors disabled:opacity-40"
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>}
+
+        {/* Action row — always visible when signed in */}
+        {user && (
+          <div className="mt-1.5 flex items-center gap-0.5 pl-5">
+            <button
+              onClick={handleViewPdf}
+              disabled={loadingPdf}
+              className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium text-muted/60 transition-colors hover:bg-accent/10 hover:text-accent disabled:opacity-40"
+            >
+              {loadingPdf
+                ? <span className="h-2.5 w-2.5 animate-spin rounded-full border border-accent border-t-transparent" />
+                : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+              }
+              View PDF
+            </button>
+            <span className="text-stone-300 select-none">·</span>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium text-muted/60 transition-colors hover:bg-red-50 hover:text-red-400 disabled:opacity-40"
+            >
+              {deleting
+                ? <span className="h-2.5 w-2.5 animate-spin rounded-full border border-red-400 border-t-transparent" />
+                : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+              }
+              Remove
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -626,16 +640,6 @@ export default function Page() {
               {/* -- Empty / welcome state----------------------------─-- */}
               {isInitial && (
                 <div className="space-y-8">
-                  {/* Anime mini-banner */}
-                  <div className="relative -mx-6 -mt-10 h-44 overflow-hidden">
-                    <Image src="/img_bg.jpg" alt="" fill className="object-cover object-[center_18%]" />
-                    <div className="absolute inset-0 bg-gradient-to-b from-amber-950/55 via-amber-900/35 to-bg" />
-                    <div className="relative z-10 flex h-full flex-col justify-end px-6 pb-5">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white drop-shadow">
-                        Research Assistant · Papyrus
-                      </p>
-                    </div>
-                  </div>
 
                   {/* Masthead block */}
                   <div className="space-y-3 border-b-2 border-stone-200 pb-8">

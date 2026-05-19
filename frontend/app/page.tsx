@@ -269,6 +269,7 @@ export default function Dashboard() {
                     { v: stats.chunks.toLocaleString(), l: "vector chunks"  },
                     { v: `${stats.embedding_dims}-dim`, l: "embeddings"     },
                     { v: `up ${uptime}`,                l: "uptime"         },
+                    { v: stats.retrieval_final_k,       l: "Final Top-k"    }
                   ] as { v: string | number; l: string }[]).map(({ v, l }) => (
                     <span key={l} className="rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-sm backdrop-blur-sm">
                       <span className="font-bold text-white">{v}</span>
@@ -281,15 +282,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* ── Stat cards ────────────────────────────────────────────────── */}
-        {stats && (
-          <section className="mb-16 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <StatCard label="Papers Indexed"       value={stats.papers}                          sub="default corpus"                       accent="from-amber-500 to-orange-500" />
-            <StatCard label="Vector Chunks"        value={stats.chunks.toLocaleString()}          sub={`~${stats.avg_chunks_per_paper} per paper`} accent="from-indigo-500 to-violet-500" />
-            <StatCard label="Retrieval Candidates" value={stats.retrieval_candidate_k}            sub="per search method"                    accent="from-emerald-500 to-teal-500" />
-            <StatCard label="Final Top-K"          value={stats.retrieval_final_k}               sub={`threshold ${stats.similarity_threshold}`}  accent="from-rose-500 to-pink-500"  />
-          </section>
-        )}
+        
 
         {/* ── Pipeline timeline ─────────────────────────────────────────── */}
         <section className="mb-16">
@@ -530,18 +523,6 @@ export default function Dashboard() {
   );
 }
 
-/* ── Shared sub-components ────────────────────────────────────────────────── */
-
-function StatCard({ label, value, sub, accent = "from-accent to-amber-500" }: { label: string; value: string | number; sub: string; accent?: string }) {
-  return (
-    <div className="group relative overflow-hidden rounded-2xl border border-stone-200 bg-panel/60 px-5 py-5 transition-all hover:-translate-y-1 hover:shadow-soft">
-      <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${accent}`} />
-      <p className="text-xs text-muted/80">{label}</p>
-      <p className="mt-1.5 text-2xl font-bold text-text">{value}</p>
-      <p className="mt-0.5 text-xs text-muted/65">{sub}</p>
-    </div>
-  );
-}
 
 function SectionHeader({ label, title, description }: { label: string; title: string; description: string }) {
   return (
