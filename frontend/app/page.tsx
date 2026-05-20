@@ -451,7 +451,7 @@ export default function Dashboard() {
             title="Production Stack"
             description="Each component was selected for performance, correctness, and minimal operational overhead on a single-node deployment."
           />
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
             {TECH_STACK.map(t => (
               <div key={t.name} className="rounded-2xl border border-stone-200 bg-panel/60 p-5 transition-shadow hover:shadow-soft">
                 <div className="mb-2 flex items-start justify-between gap-2">
