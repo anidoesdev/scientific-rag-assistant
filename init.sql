@@ -13,9 +13,6 @@ CREATE TABLE IF NOT EXISTS user_hidden_papers (
     PRIMARY KEY (user_id, paper_id)
 );
 
-DROP INDEX IF EXISTS idx_chunks_embedding;
-TRUNCATE TABLE chunks;
-
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -31,6 +28,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     uploaded_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
+
+DROP INDEX IF EXISTS idx_chunks_embedding;
 
 CREATE INDEX IF NOT EXISTS idx_chunks_paper_id
     ON chunks (paper_id);

@@ -85,7 +85,7 @@ async def upload_paper(file: UploadFile = File(...), _user: dict = Depends(get_c
                 sql_text(
                     "UPDATE chunks SET uploaded_by_user_id = :uid WHERE paper_id = :pid"
                 ),
-                {"uid": user["id"], "pid": result["paper_id"]},
+                {"uid": _user["id"], "pid": result["paper_id"]},
             )
             session.commit()
 
